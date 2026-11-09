@@ -1,0 +1,21 @@
+# Build output
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing material - never in git
+*.keystore
+*.jks
+keystore.properties
+release.keystore
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# The original APK this project replaces stays tracked, nothing else does.

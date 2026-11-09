@@ -1,0 +1,58 @@
+name: Build TV APK
+
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths-ignore:
+      - "**/*.md"
+      - "pbbforfree.apk"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      # Optional: sign with the old app's own key so the new APK installs as an update.
+      # Run dump-signing.sh once, then add KEYSTORE_B64 + KEYSTORE_PROPERTIES as repo
+      # secrets. Without them the build is signed with the throwaway debug key and is
+      # still installable - just not over the previous APK.
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PROPS: ${{ secrets.KEYSTORE_PROPERTIES }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > release.keystore
+            printf '%s\n' "$KEYSTORE_PROPS" > keystore.properties
+            echo "Signing with the supplied release key."
+          else
+            echo "No release key configured - using the debug key."
+          fi
+
+      - name: Build release APK
+        run: gradle :app:assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pbb-tv-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
