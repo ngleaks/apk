@@ -2,9 +2,11 @@
 
 A small native TV build that replaces the phone-only WebView wrapper in `pbbforfree.apk`.
 
-**Ready to install:** [`pbb-tv-1.0.0.apk`](pbb-tv-1.0.0.apk) (878 KB, minSdk 24, targetSdk 35).
-Sideload it with `adb install pbb-tv-1.0.0.apk`, or download it on the TV with Downloader
-(`https://raw.githubusercontent.com/ngleaks/apk/arena/0c5efdd6-apk/pbb-tv-1.0.0.apk`).
+**Ready to install:** [`pbb-tv-1.1.0.apk`](pbb-tv-1.1.0.apk) (882 KB, minSdk 24, targetSdk 35).
+Sideload it with `adb install pbb-tv-1.1.0.apk`, or download it on the TV with Downloader from the
+raw link on branch `arena/d7765815-apk`
+(`https://raw.githubusercontent.com/ngleaks/apk/arena/d7765815-apk/pbb-tv-1.1.0.apk`).
+Upgrading from 1.0.0 keeps the same signing key, so it installs over it.
 
 The original APK is a `freewebtoapk.com` template that opens `pbblivestream.vercel.app` in a
 WebView. That cannot be driven by a TV remote, has no real leanback banner, no channel switching,
@@ -12,8 +14,8 @@ and drags in 7 MB of unused ad/IAP/push SDKs.
 
 | | old `pbbforfree.apk` | this build |
 |---|---|---|
-| UI | remote website in a WebView | native full-screen player, custom drawn overlay |
-| Remote / D-pad | not usable (no focus handling) | OK = play/pause, ← = channels, BACK = exit, ▲▼ = show chrome |
+| UI | remote website in a WebView | native 10-foot home screen: 3 camera cards + action row |
+| Remote / D-pad | not usable (no focus handling) | OK = watch, ← → = pick, ▲ ▼ = move, BACK = home |
 | Stream playback | whatever the page does | HLS live (segments) + progressive MP4/WebM, auto-retry |
 | Launch entry points | phone launcher + leanback category | `LEANBACK_LAUNCHER` **and** `LAUNCHER` |
 | TV banner | blank 320×180 placeholder | branded `res/drawable/tv_banner.png` |
@@ -46,21 +48,38 @@ same command works in CI (see `docs/ci/build-tv-apk.yml`) and in a locked-down s
   only if the package name is changed back to `com.webapp.pbbforfree`; a different applicationId
   installs side by side. Play Store uploads need your own upload key either way.
 
-## Channels
+## Channels — the three PBB cameras
 
-Channels are seeded from `StreamConfig.MANIFEST` on first launch, then live on the device:
+The home screen mirrors the camera switcher on `pbblivestream.vercel.app`, but native and D-pad
+first: **Main stream · All Access**, **Dining area**, **External den**. Each card is one camera
+slot with a stable key (`all`, `dining`, `external`); a slot is *bound* to a real stream URL once,
+and that binding is kept on the device across app updates.
 
 | Action | How |
 |---|---|
-| Pick a channel | press ← (or MENU / CH+ / CH−) |
-| Remove a channel | long-press OK on it |
-| Add a channel without rebuilding | `adb shell am start -a android.intent.action.VIEW -d "pbblivetv://add?url=https://…/live.m3u8&title=Main" com.pbb.streamtv` |
-| Deep link straight to a stream | `pbblivetv://play?url=…&title=Main` |
-| Open the website | "Open website…" → system browser (never inside the app) |
+| Watch a camera | focus its card, press OK |
+| Bind / change its link | OK on a card that says `NOT SET` (or OK on the error card while watching) — a URL box opens with the on-screen keyboard |
+| Add an extra stream | "Add a stream" row, or the deep link below |
+| Bind from a PC (no typing on the TV) | `adb shell am start -a android.intent.action.VIEW -d "pbblivetv://add?key=dining&url=https://…/live.m3u8" com.pbb.streamtv` |
+| Deep link straight to playback | `pbblivetv://play?url=https://…/live.m3u8&title=Dining` |
+| Bake a link into the APK | fill the URL in `StreamConfig.MANIFEST` and rebuild |
+| Remove | long-press OK on a card (camera slots can be restored with "Restore cameras") |
+| Open the website | "PBB website" row → system browser (never inside the app) |
 
-The list ships with one clearly labelled demo stream (Apple's public HLS sample) so you can verify
-the player on the TV immediately — long-press OK to delete it. Replace the `Main camera` /
-`Dining area` / `External cam` placeholders with your own HLS URLs.
+`key` must be `all`, `dining` or `external`; omit it and the URL is saved as an extra channel.
+
+The app ships with **no** PBB URLs: they are behind iWant and not public (Main is free there,
+Dining/External are behind a subscription). The one pre-filled row is a clearly labelled
+`Demo · HLS test stream` (Apple's public sample) so you can prove the TV, the network and the
+decoders work before pasting a real link.
+
+### Where the links come from
+
+The app does not scrape iWant and has no accounts: whatever URL you paste is played as-is, so the
+stream has to be one you can reach **without a login** (an open HLS/DASH URL, including one your
+own `pbblivestream` deployment already holds). If the CDN returns 401/403 the card will say
+"Stream unreachable" and retry — that means the link is bound to a session, not that the app is
+broken.
 
 ### HLS support
 
@@ -75,7 +94,8 @@ ABR, no trick play on live, brief gap if a segment stalls.
 * **No WebView.** A remote site cannot be focused with a remote; wrapping it is why the current APK
   is unusable on TV.
 * **No ads / IAP / push SDKs.** They were disabled in the old config anyway.
-* **No page scraping.** Point `MANIFEST` at streams you are allowed to rebroadcast.
+* **No page scraping and no login.** Point the camera slots at streams you are allowed to
+  rebroadcast; there is no credential storage, no WebView cookie jar and no account handling.
 
 ⚠️ Content rights: "PBB" is ABS-CBN's. Ship this only with streams you own or are licensed to
 rebroadcast, otherwise expect a Play Store takedown regardless of how good the player is.

@@ -1,6 +1,7 @@
 package com.pbb.streamtv;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -15,12 +16,14 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -32,12 +35,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * One full-screen, D-pad driven player.
+ * Home screen + full-screen player in one D-pad driven activity.
  *
  * <p>Why not a WebView? A website cannot be focused with a TV remote and drags in desktop
- * assumptions. Here nothing remote is ever rendered: the channel list only holds stream URLs and
- * playback happens through {@link StreamEngine} (HLS segments or a progressive file), so the
- * hardware decoders, audio focus and the remote's media keys all behave like a TV app should.
+ * assumptions. Here nothing remote is ever rendered: the picker only holds stream URLs and playback
+ * happens through {@link StreamEngine} (HLS segments or a progressive file), so the hardware
+ * decoders, audio focus and the remote's media keys all behave like a TV app should.
  */
 public final class PlayerActivity extends Activity implements StreamEngine.Listener {
 
@@ -56,18 +59,31 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     private StreamEngine engine;
     private SurfaceHost surfaceHost;
     private OverlayView overlay;
-    private LinearLayout panel;
-    private LinearLayout channelList;
-    private ScrollView panelScroll;
+
+    /** True while the player stage (video + chrome) fills the screen; false on the home screen. */
+    private boolean watching = false;
 
     private AudioManager audioManager;
     private boolean noisyRegistered = false;
 
     private String currentUrl = "";
     private String currentTitle = "";
+    private String currentKey = "";
+    /** URL waiting for "Try again" from the error card / Add stream dialog. */
+    private String pendingUrl = "";
+    private String pendingTitle = "";
+    private String pendingKey = "";
     private int retryIndex = 0;
     private long lastBackAt = 0L;
     private boolean chromeVisible = true;
+
+    // ---------------------------------------------------------------- home screen widgets
+    private View home;
+    private LinearLayout homeTitle;
+    private TextView homeSubtitle;
+    private LinearLayout homeCards;
+    private LinearLayout homeCameras;
+    private TextView homeHint;
 
     private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
         @Override
@@ -123,134 +139,365 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         overlay = new OverlayView(this);
         overlay.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        overlay.setHint("OK  ·  play/pause      ←  ·  channels      BACK  ·  exit");
+        overlay.setHint(OverlayView.HINT_WATCHING);
         overlay.setLogo(BitmapFactory.decodeResource(getResources(), R.drawable.splash_logo));
         overlay.setShowLogo(true);
         root.addView(overlay);
 
-        panel = buildPanel();
-        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(
-                Ui.dp(this, 340), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START);
-        panel.setLayoutParams(panelLp);
-        panel.setVisibility(View.GONE);
-        root.addView(panel);
+        home = buildHome();
+        root.addView(home);
 
         setContentView(root);
+        showHome();
     }
 
-    private LinearLayout buildPanel() {
-        LinearLayout panelRoot = new LinearLayout(this);
-        panelRoot.setOrientation(LinearLayout.VERTICAL);
-        panelRoot.setBackgroundColor(Ui.PANEL_BG);
-        panelRoot.setPadding(Ui.dp(this, 22), Ui.dp(this, 26), Ui.dp(this, 22), Ui.dp(this, 18));
-        panelRoot.setFocusable(false);
+    /** The TV home screen: three camera cards, one row of actions. Nothing to scroll, nothing tiny. */
+    private View buildHome() {
+        FrameLayout stage = new FrameLayout(this);
+        stage.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        stage.setBackgroundColor(Ui.HOME_BG);
 
-        panelScroll = new ScrollView(this);
-        panelScroll.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-        panelScroll.setVerticalScrollBarEnabled(false);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setClipChildren(false);
+        stage.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        channelList = new LinearLayout(this);
-        channelList.setOrientation(LinearLayout.VERTICAL);
-        panelScroll.addView(channelList);
-        panelRoot.addView(panelScroll);
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(Ui.dp(this, 48), Ui.dp(this, 26), Ui.dp(this, 48), Ui.dp(this, 22));
+        scroll.addView(column, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView footer = Ui.label(this,
-                "ADD A CHANNEL FROM YOUR PC\n"
-                        + "adb shell am start -a android.intent.action.VIEW \\\n"
-                        + "  -d \"pbblivetv://add?url=https://…/live.m3u8&title=Main\" \\\n"
-                        + "  com.pbb.streamtv",
-                10f, Ui.TEXT_MUTED, false);
-        footer.setLineSpacing(Ui.dp(this, 1), 1f);
-        footer.setPadding(0, Ui.dp(this, 10), 0, 0);
-        panelRoot.addView(footer);
+        homeTitle = new LinearLayout(this);
+        homeTitle.setOrientation(LinearLayout.HORIZONTAL);
+        homeTitle.setGravity(Gravity.CENTER_VERTICAL);
+        column.addView(homeTitle);
 
-        return panelRoot;
+        homeSubtitle = Ui.label(this, "PBB 3.0 · All Access", 17f, Ui.TEXT_MUTED, false);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = Ui.dp(this, 6);
+        homeSubtitle.setLayoutParams(subLp);
+        column.addView(homeSubtitle);
+
+        // ---- camera cards, the main thing on screen ----
+        TextView camHeader = Ui.label(this, "LIVE CAMERAS", 13f, Ui.ACCENT, false);
+        camHeader.setLetterSpacing(0.18f);
+        LinearLayout.LayoutParams camHeaderLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        camHeaderLp.topMargin = Ui.dp(this, 20);
+        camHeader.setLayoutParams(camHeaderLp);
+        column.addView(camHeader);
+
+        homeCameras = new LinearLayout(this);
+        homeCameras.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams camLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        camLp.topMargin = Ui.dp(this, 8);
+        homeCameras.setLayoutParams(camLp);
+        column.addView(homeCameras);
+
+        // ---- actions ----
+        TextView actionHeader = Ui.label(this, "MORE", 13f, Ui.ACCENT, false);
+        actionHeader.setLetterSpacing(0.18f);
+        LinearLayout.LayoutParams actionHeaderLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionHeaderLp.topMargin = Ui.dp(this, 20);
+        actionHeader.setLayoutParams(actionHeaderLp);
+        column.addView(actionHeader);
+
+        homeCards = new LinearLayout(this);
+        homeCards.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams cardsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardsLp.topMargin = Ui.dp(this, 8);
+        homeCards.setLayoutParams(cardsLp);
+        column.addView(homeCards);
+
+        homeHint = Ui.label(this,
+                "OK watch   ·   ← → pick   ·   ▲ ▼ move   ·   long OK remove   ·   BACK exit",
+                12f, Ui.TEXT_FAINT, false);
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hintLp.topMargin = Ui.dp(this, 16);
+        homeHint.setLayoutParams(hintLp);
+        column.addView(homeHint);
+
+        stage.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return stage;
     }
 
-    private void rebuildChannelButtons(String focusUrl) {
-        channelList.removeAllViews();
+    private void showHome() {
+        watching = false;
+        home.setVisibility(View.VISIBLE);
+        overlay.setVisibility(View.GONE);
+        overlay.setShowLogo(false);
+        overlay.setCentreMessage("", 0);
+        overlay.setHint(OverlayView.HINT_WATCHING);
+        setChromeVisible(false);
+        rebuildHome();
+    }
 
-        TextView header = Ui.label(this, "CHANNELS", 13f, 0xFF9FB0FF, false);
-        header.setLetterSpacing(0.18f);
-        header.setPadding(0, 0, 0, Ui.dp(this, 14));
-        channelList.addView(header);
+    private void rebuildHome() {
+        // Brand row: logo art + wordmark, so the home screen reads like an app, not a debug menu.
+        homeTitle.removeAllViews();
+        android.widget.ImageView mark = new android.widget.ImageView(this);
+        mark.setImageResource(R.drawable.splash_logo);
+        mark.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        homeTitle.addView(mark, new LinearLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 52)));
+        TextView word = Ui.label(this, "PBBforFREE", 28f, Color.WHITE, true);
+        LinearLayout.LayoutParams wordLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wordLp.leftMargin = Ui.dp(this, 16);
+        word.setLayoutParams(wordLp);
+        homeTitle.addView(word);
+        TextView tv = Ui.label(this, " TV ", 15f, Ui.HOME_BG, true);
+        tv.setBackground(Ui.rounded(Ui.ACCENT, 0, 0, Ui.dp(this, 6)));
+        tv.setPadding(Ui.dp(this, 8), Ui.dp(this, 3), Ui.dp(this, 8), Ui.dp(this, 3));
+        LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tvLp.leftMargin = Ui.dp(this, 10);
+        tv.setLayoutParams(tvLp);
+        homeTitle.addView(tv);
 
+        // ---- cameras: three equal cards, filled edge to edge ----
+        homeCameras.removeAllViews();
         List<ChannelStore.Channel> channels = ChannelStore.load(this);
-        if (channels.isEmpty()) {
-            TextView empty = Ui.label(this,
-                    "No channels yet.\n\nAdd one with the adb command below, or fill in StreamConfig.MANIFEST and rebuild.",
-                    12f, 0xFFCCD3EA, false);
-            empty.setLineSpacing(Ui.dp(this, 2), 1f);
-            empty.setPadding(0, 0, 0, Ui.dp(this, 12));
-            channelList.addView(empty);
-        }
-
-        Button first = null;
+        View firstCamera = null;
+        boolean focusAssigned = false;
         for (final ChannelStore.Channel channel : channels) {
-            Button b = Ui.button(this, channel.title);
-            b.setOnClickListener(v -> {
-                setPanelVisible(false);
-                play(channel.url, channel.title);
-            });
-            b.setOnLongClickListener(v -> {
-                ChannelStore.remove(this, channel.url);
-                rebuildChannelButtons(null);
-                Toast.makeText(this, "Removed " + channel.title, Toast.LENGTH_SHORT).show();
+            if (!channel.isCamera()) {
+                continue;
+            }
+            boolean demo = "demo".equals(channel.key);
+            String badge = demo ? "TEST" : (channel.isBound() ? "READY" : "NOT SET");
+            String detail = demo
+                    ? "Apple sample stream · proves the player works"
+                    : (channel.isBound()
+                            ? "Plays straight on this TV, no login"
+                            : "Bind a stream URL once — press OK");
+            Ui.Card card = Ui.card(this, "CAM", badgeColor(channel),
+                    cameraGlyph(channel), channel.title, detail, channel.isBound(), 176);
+            card.view.setOnClickListener(v -> openChannel(channel));
+            card.view.setOnLongClickListener(v -> {
+                if (!channel.isBound()) {
+                    Toast.makeText(this, "Nothing to remove yet", Toast.LENGTH_SHORT).show();
+                } else {
+                    ChannelStore.remove(this, channel);
+                    Toast.makeText(this, "Removed " + channel.title, Toast.LENGTH_SHORT).show();
+                    rebuildHome();
+                }
                 return true;
             });
-            channelList.addView(b);
-            if (first == null) {
-                first = b;
+            if (homeCameras.getChildCount() > 0) {
+                card.view.setLayoutParams(Ui.cardParams(this, 1f, 18));
+            } else {
+                card.view.setLayoutParams(Ui.cardParams(this, 1f, 0));
             }
-            if (focusUrl != null && channel.url.equals(focusUrl)) {
-                first = b;
+            homeCameras.addView(card.view);
+            card.badge.setText(badge);
+            // Focus the last tuned camera, else the first bound one, else the first slot.
+            boolean preferred = (!currentKey.isEmpty() && currentKey.equals(channel.key))
+                    || (!focusAssigned
+                        && (channel.isBound() || channelIndexIsFirstCamera(channels, channel)));
+            if (preferred && firstCamera == null) {
+                firstCamera = card.view;
+                focusAssigned = true;
             }
         }
 
-        Button site = Ui.button(this, "Open website…");
-        site.setOnClickListener(v -> {
-            setPanelVisible(false);
-            openExternal(StreamConfig.LANDING_PAGE);
+        // ---- actions ----
+        homeCards.removeAllViews();
+        Ui.Card add = Ui.cardRow(this, "SETUP", Ui.ACCENT,
+                "+", "Add a stream",
+                "Paste a .m3u8 link with the on-screen keyboard, or push it from a PC over adb.",
+                96);
+        add.view.setOnClickListener(v -> showAddDialog());
+        addCard(add);
+
+        Ui.Card site = Ui.cardRow(this, "SOURCE", Ui.WARN,
+                "↗", "PBB website",
+                "Opens pbblivestream.vercel.app in the system browser when you need the link text.",
+                96);
+        site.view.setOnClickListener(v -> openExternal(StreamConfig.LANDING_PAGE));
+        addCard(site);
+
+        Ui.Card restore = Ui.cardRow(this, "RESET", Ui.TEXT_MUTED,
+                "↺", "Restore cameras",
+                "Brings back camera slots removed with a long OK press, and forgets the auto-open.",
+                96);
+        restore.view.setOnClickListener(v -> {
+            ChannelStore.restoreCameras(this);
+            getSharedPreferences(StreamConfig.PREFS, MODE_PRIVATE).edit()
+                    .remove(StreamConfig.KEY_LAST_URL)
+                    .remove(StreamConfig.KEY_LAST_TITLE)
+                    .remove(StreamConfig.KEY_LAST_KEY).apply();
+            currentKey = "";
+            rebuildHome();
         });
-        channelList.addView(site);
+        addCard(restore);
 
-        Button close = Ui.button(this, "Close");
-        close.setOnClickListener(v -> setPanelVisible(false));
-        channelList.addView(close);
+        int bound = ChannelStore.boundCount(this);
+        homeSubtitle.setText(bound == 0
+                ? "PBB 3.0 · All Access — no camera linked yet"
+                : "PBB 3.0 · All Access — " + bound + " of " + StreamConfig.MANIFEST.length + " cameras ready");
 
-        if (first != null) {
-            first.requestFocus();
+        if (firstCamera != null) {
+            firstCamera.requestFocus();
         }
     }
 
-    private void setPanelVisible(boolean visible) {
-        panel.setVisibility(visible ? View.VISIBLE : View.GONE);
-        if (visible) {
-            rebuildChannelButtons(currentUrl.isEmpty() ? null : currentUrl);
-            ui.removeCallbacks(hideChrome);
-        } else {
-            surfaceHost.requestFocus();
+    private boolean channelIndexIsFirstCamera(List<ChannelStore.Channel> all, ChannelStore.Channel c) {
+        for (ChannelStore.Channel other : all) {
+            if (other.isCamera()) {
+                return other == c;
+            }
+        }
+        return false;
+    }
+
+    private static int badgeColor(ChannelStore.Channel channel) {
+        if ("demo".equals(channel.key)) {
+            return Ui.WARN;
+        }
+        return channel.isBound() ? Ui.ACCENT : Ui.TEXT_MUTED;
+    }
+
+    /** "Main stream · All Access" -> "MAIN STREAM"; "Dining area" -> "DINING AREA". */
+    private static String cameraShortName(ChannelStore.Channel channel) {
+        String title = channel.title;
+        int cut = title.indexOf(" · ");
+        if (cut > 0) {
+            title = title.substring(0, cut);
+        }
+        return title.toUpperCase(java.util.Locale.US);
+    }
+
+    private void addCard(Ui.Card card) {
+        LinearLayout.LayoutParams lp = cardParams(1f, homeCards.getChildCount() == 0 ? 0 : 18);
+        card.view.setLayoutParams(lp);
+        homeCards.addView(card.view);
+    }
+
+    /** Weight-based row params with a fixed pixel height already set by {@link Ui#cardRow}. */
+    private LinearLayout.LayoutParams cardParams(float weight, int leftMarginDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.dp(this, 96), weight);
+        lp.leftMargin = Ui.dp(this, leftMarginDp);
+        return lp;
+    }
+
+    /** Big glyph per camera, so the three cards are distinguishable without reading. */
+    private static String cameraGlyph(ChannelStore.Channel channel) {
+        switch (channel.key) {
+            case "all":
+                return "▣";
+            case "dining":
+                return "⌂";
+            case "external":
+                return "☀";
+            default:
+                return "▶";
         }
     }
 
-    private void setChromeVisible(boolean visible) {
-        chromeVisible = visible;
-        overlay.fadeUi(visible);
-        ui.removeCallbacks(hideChrome);
-        if (visible && panel.getVisibility() != View.VISIBLE) {
-            ui.postDelayed(hideChrome, CHROME_TIMEOUT_MS);
+    // ------------------------------------------------------------------ binding / adding streams
+
+    private void openChannel(ChannelStore.Channel channel) {
+        if (channel.isBound()) {
+            play(channel.url, channel.title, channel.key);
+            return;
         }
+        showBindDialog(channel);
     }
 
-    private void pokeChrome() {
-        setChromeVisible(true);
-        updateProgress();
+    private void showBindDialog(final ChannelStore.Channel channel) {
+        final EditText input = streamInput();
+        new AlertDialog.Builder(this)
+                .setTitle("Link " + channel.title)
+                .setMessage("Paste the stream URL for this camera once. It is saved on this TV and "
+                        + "plays from now on with no login or browser.")
+                .setView(pad(input))
+                .setPositiveButton("Save & play", (d, w) -> {
+                    String url = input.getText().toString().trim();
+                    if (!ChannelStore.looksPlayable(url)) {
+                        notifyCouldNotSave(url);
+                        return;
+                    }
+                    ChannelStore.bind(this, channel.key, channel.title, url);
+                    rebuildHome();
+                    play(url, channel.title, channel.key);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        showKeyboard(input);
+    }
+
+    private void showAddDialog() {
+        final EditText input = streamInput();
+        new AlertDialog.Builder(this)
+                .setTitle("Add a stream URL")
+                .setMessage("HLS (.m3u8) or DASH (.mpd) links work. Tip: press OK on a camera card to "
+                        + "bind it to one of the three PBB cameras instead.")
+                .setView(pad(input))
+                .setPositiveButton("Play", (d, w) -> {
+                    String url = input.getText().toString().trim();
+                    if (!ChannelStore.looksPlayable(url)) {
+                        notifyCouldNotSave(url);
+                        return;
+                    }
+                    ChannelStore.upsertExtra(this, null, url);
+                    rebuildHome();
+                    play(url, null, "extra");
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        showKeyboard(input);
+    }
+
+    private EditText streamInput() {
+        EditText input = new EditText(this);
+        input.setHint("https://…/live.m3u8");
+        input.setSingleLine(true);
+        input.setTextSize(16f);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        input.setTextColor(Color.WHITE);
+        input.setHintTextColor(Ui.TEXT_FAINT);
+        return input;
+    }
+
+    private View pad(View view) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(Ui.dp(this, 24), Ui.dp(this, 8), Ui.dp(this, 24), 0);
+        box.addView(view);
+        return box;
+    }
+
+    /** On a TV the soft keyboard is the only way to type a URL with just a remote. */
+    private void showKeyboard(EditText input) {
+        ui.postDelayed(() -> {
+            input.requestFocus();
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            }
+        }, 350L);
+    }
+
+    private void notifyCouldNotSave(String url) {
+        Toast.makeText(this,
+                url.isEmpty() ? "Paste a stream URL first" : "That does not look like a stream URL",
+                Toast.LENGTH_LONG).show();
     }
 
     // ------------------------------------------------------------------ playback
 
-    private void play(String url, String title) {
+    private void play(String url, String title, String key) {
         if (url == null || url.isEmpty()) {
             return;
         }
@@ -258,8 +505,17 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         if (engine != null) {
             engine.release();
         }
+        watching = true;
+        home.setVisibility(View.GONE);
+        overlay.setVisibility(View.VISIBLE);
+        overlay.setShowLogo(false);
+        overlay.setHint(OverlayView.HINT_WATCHING);
+
         currentUrl = url;
-        currentTitle = StreamConfig.titleFor(url, title);
+        currentKey = key == null ? "" : key;
+        currentTitle = StreamConfig.titleFor(url, title == null || title.isEmpty()
+                ? StreamConfig.titleForKey(currentKey) : title);
+        pendingUrl = "";
         retryIndex = 0;
 
         engine = HlsPlaylist.looksLikePlaylist(url) || isLikelyHls(url)
@@ -269,7 +525,8 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         overlay.setTitle(currentTitle, "", engine.isLive());
         surfaceHost.requestFocus();
         engine.prepare(url);
-        StreamConfig.remember(getSharedPreferences(StreamConfig.PREFS, MODE_PRIVATE), url, currentTitle);
+        StreamConfig.remember(getSharedPreferences(StreamConfig.PREFS, MODE_PRIVATE),
+                url, currentTitle, currentKey);
     }
 
     /** Some CDNs serve HLS from a query string instead of a .m3u8 path. */
@@ -291,9 +548,35 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         retryIndex++;
         overlay.setCentreMessage("Stream unreachable"
                 + (detail.isEmpty() ? "" : "\n" + detail) + "\nretrying in " + Math.max(1, delay / 1000) + "s"
-                + "\n\npress ← for channels", 4);
+                + "\n\n← channels   ·   OK change link   ·   ▲▼ home", 5);
         ui.removeCallbacks(retryRunnable);
         ui.postDelayed(retryRunnable, delay);
+    }
+
+    /** Stop the dead stream and show the URL box pre-filled, so a rotated/expired link is a 2-tap fix. */
+    private void fixCurrentLink() {
+        final EditText input = streamInput();
+        input.setText(currentUrl);
+        new AlertDialog.Builder(this)
+                .setTitle("Change link · " + currentTitle)
+                .setMessage("Reconnect this camera with a fresh stream URL.")
+                .setView(pad(input))
+                .setPositiveButton("Save & play", (d, w) -> {
+                    String url = input.getText().toString().trim();
+                    if (!ChannelStore.looksPlayable(url)) {
+                        notifyCouldNotSave(url);
+                        return;
+                    }
+                    if (!currentKey.isEmpty() && !"extra".equals(currentKey)) {
+                        ChannelStore.bind(this, currentKey, currentTitle, url);
+                    } else {
+                        ChannelStore.upsertExtra(this, null, url);
+                    }
+                    play(url, currentTitle, currentKey);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        showKeyboard(input);
     }
 
     @Override
@@ -305,6 +588,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
                 break;
             case PLAYING:
                 retryIndex = 0;
+                pendingUrl = "";
                 overlay.setShowLogo(false);
                 overlay.setCentreMessage("", 0);
                 overlay.setTitle(currentTitle, "", engine != null && engine.isLive());
@@ -315,7 +599,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
                 setChromeVisible(true);
                 break;
             case ENDED:
-                overlay.setCentreMessage("End of stream\n\npress ← for channels", 3);
+                overlay.setCentreMessage("End of stream\n\n← channels   ·   ▲▼ home", 3);
                 setChromeVisible(true);
                 break;
             case ERROR:
@@ -375,7 +659,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
 
     private void handleIntent(Intent intent, boolean firstLaunch) {
         if (intent == null) {
-            showStartup();
+            showHome();
             return;
         }
         Uri data = intent.getData();
@@ -383,40 +667,34 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
             String host = data.getHost() == null ? "" : data.getHost();
             String url = data.getQueryParameter("url");
             String title = data.getQueryParameter("title");
+            String key = data.getQueryParameter("key");
             if ("add".equals(host) && url != null) {
-                ChannelStore.upsert(this, title, url);
-                Toast.makeText(this, "Channel added", Toast.LENGTH_SHORT).show();
-                if (firstLaunch) {
-                    showStartup();
-                } else if (panel.getVisibility() == View.VISIBLE) {
-                    rebuildChannelButtons(url);
-                }
+                ChannelStore.bind(this, key, title, url);
+                Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+                showHome();
+                rebuildHome();
                 return;
             }
             if (url != null && !url.isEmpty()) {
-                play(url, title);
+                play(url, title, key);
                 return;
             }
         }
         String extra = intent.getStringExtra(EXTRA_URL);
         if (extra != null && !extra.isEmpty()) {
-            play(extra, intent.getStringExtra(EXTRA_TITLE));
+            play(extra, intent.getStringExtra(EXTRA_TITLE), "");
             return;
         }
-        StreamConfig.PlayRequest resume = StreamConfig.resolve(null,
+        StreamConfig.PlayRequest request = StreamConfig.resolve(null,
                 getSharedPreferences(StreamConfig.PREFS, MODE_PRIVATE));
-        if (!resume.isEmpty() && StreamConfig.isAutoResume()) {
-            play(resume.url, resume.title);
-        } else {
-            showStartup();
+        if (!request.isEmpty() && StreamConfig.isAutoResume()) {
+            play(request.url, request.title, request.key);
+            return;
         }
-    }
-
-    private void showStartup() {
-        overlay.setCentreMessage("", 0);
-        overlay.setTitle("PBBforFREE", "", true);
-        setPanelVisible(true);
-        setChromeVisible(true);
+        showHome();
+        if (firstLaunch && StreamConfig.OPEN_SITE_WHEN_UNBOUND && ChannelStore.boundCount(this) == 0) {
+            openExternal(StreamConfig.LANDING_PAGE);
+        }
     }
 
     @Override
@@ -439,22 +717,34 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (watching) {
+                    showHome();
+                    return true;
+                }
+                return super.onKeyDown(keyCode, event);
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                if (panel.getVisibility() != View.VISIBLE) {
-                    setPanelVisible(true);
+                if (watching) {
+                    showHome();
                     return true;
                 }
                 break;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                if (panel.getVisibility() != View.VISIBLE) {
+                if (watching) {
                     seekBy(10_000L);
                     return true;
                 }
                 break;
             case KeyEvent.KEYCODE_MENU:
+                if (watching) {
+                    showHome();
+                }
+                return true;
             case KeyEvent.KEYCODE_CHANNEL_UP:
             case KeyEvent.KEYCODE_CHANNEL_DOWN:
-                setPanelVisible(panel.getVisibility() != View.VISIBLE);
+                if (watching) {
+                    showHome();
+                }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 togglePlayPause();
@@ -489,12 +779,6 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
             case KeyEvent.KEYCODE_VOLUME_MUTE:
                 changeVolume(AudioManager.ADJUST_TOGGLE_MUTE);
                 return true;
-            case KeyEvent.KEYCODE_A:
-                if (panel.getVisibility() != View.VISIBLE) {
-                    changeVolume(AudioManager.ADJUST_RAISE);
-                    return true;
-                }
-                break;
             default:
                 break;
         }
@@ -507,13 +791,23 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
             handleBack();
             return true;
         }
-        if (panel.getVisibility() != View.VISIBLE) {
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
-                    || keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+        if (watching) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                 if (!chromeVisible) {
                     setChromeVisible(true);
-                } else if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                    togglePlayPause();
+                } else if (!currentUrl.isEmpty()) {
+                    // OK on an error card = fix the link; otherwise play/pause.
+                    if (overlay.centreVisible()) {
+                        fixCurrentLink();
+                    } else {
+                        togglePlayPause();
+                    }
+                }
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (!chromeVisible) {
+                    setChromeVisible(true);
                 }
                 return true;
             }
@@ -522,12 +816,8 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     }
 
     private void handleBack() {
-        if (panel.getVisibility() == View.VISIBLE) {
-            setPanelVisible(false);
-            return;
-        }
-        if (chromeVisible) {
-            setChromeVisible(false);
+        if (watching) {
+            showHome();
             return;
         }
         long now = SystemClock.elapsedRealtime();
@@ -536,8 +826,21 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         } else {
             lastBackAt = now;
             Toast.makeText(this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
-            setChromeVisible(true);
         }
+    }
+
+    private void setChromeVisible(boolean visible) {
+        chromeVisible = visible;
+        overlay.fadeUi(visible);
+        ui.removeCallbacks(hideChrome);
+        if (visible && watching) {
+            ui.postDelayed(hideChrome, CHROME_TIMEOUT_MS);
+        }
+    }
+
+    private void pokeChrome() {
+        setChromeVisible(true);
+        updateProgress();
     }
 
     // ------------------------------------------------------------------ lifecycle
@@ -553,7 +856,9 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         if (engine != null && currentUrl != null && !currentUrl.isEmpty() && !engine.isPlaying()) {
             engine.play();
         }
-        setChromeVisible(true);
+        if (watching) {
+            setChromeVisible(true);
+        }
     }
 
     @Override
@@ -599,6 +904,8 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     @Override
     protected void onResume() {
         super.onResume();
-        updateProgress();
+        if (watching) {
+            updateProgress();
+        }
     }
 }

@@ -25,6 +25,8 @@ final class OverlayView extends View {
         void onSeekRequested(long positionMs);
     }
 
+    static final String HINT_WATCHING = "OK  play/pause   ·   ← ↑ channels   ·   ▼ info   ·   BACK home";
+
     private final TextPaint text = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint box = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint accent = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -107,6 +109,11 @@ final class OverlayView extends View {
             invalidate();
         });
         fade.start();
+    }
+
+    /** True while a centre card (connecting / unreachable / paused) is on screen. */
+    boolean centreVisible() {
+        return centre != null && !centre.isEmpty();
     }
 
     boolean uiVisible() {

@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.TextUtils;
 
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -13,97 +12,181 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The channel list shown on the left of the player, persisted as JSON in SharedPreferences.
+ * The channel list shown by the picker, persisted as JSON in SharedPreferences.
  *
- * <p>Seeded once from {@link StreamConfig#MANIFEST}; afterwards the viewer owns the list (add/remove
- * from the panel, or push a channel in with a {@code pbblivetv://} deep link).
+ * <p>Two kinds of rows:
+ * <ul>
+ *   <li>the three <b>camera slots</b> from {@link StreamConfig#MANIFEST} — stable key, title comes
+ *       from the manifest, the URL is a binding the viewer sets once (deep link or rebuild);</li>
+ *   <li><b>extra channels</b> added at runtime with {@code pbblivetv://add?url=…}.</li>
+ * </ul>
+ *
+ * <p>The list is always merged with the manifest, so upgrading the app never loses a binding even
+ * if the manifest changes.
  */
 final class ChannelStore {
 
-    private static final String KEY_CHANNELS = "channels";
-    private static final String KEY_SEEDED = "seeded";
+    private static final String KEY_BINDINGS = "bindings";   // key -> url
+    private static final String KEY_EXTRAS = "extras";       // [ {title,url} ]
+    private static final String KEY_HIDDEN = "hidden";       // ["demo"]
 
     private ChannelStore() {
     }
 
     static final class Channel {
+        /** Camera id, or the literal {@code "extra"} for runtime channels. */
+        final String key;
         final String title;
         final String url;
 
-        Channel(String title, String url) {
+        Channel(String key, String title, String url) {
+            this.key = key;
             this.title = title;
-            this.url = url;
+            this.url = url == null ? "" : url;
+        }
+
+        boolean isCamera() {
+            return !"extra".equals(key);
+        }
+
+        boolean isBound() {
+            return !TextUtils.isEmpty(url);
         }
     }
 
+    /** All rows, cameras first in manifest order, then extras. Bindings are merged in. */
     static List<Channel> load(Context context) {
         SharedPreferences prefs = prefs(context);
+        JSONObject bindings = readObject(prefs, KEY_BINDINGS);
+        JSONArray hidden = readArray(prefs, KEY_HIDDEN);
+
         List<Channel> out = new ArrayList<>();
-        if (!prefs.getBoolean(KEY_SEEDED, false)) {
-            for (StreamConfig.Stream stream : StreamConfig.MANIFEST) {
-                if (!stream.isEmpty()) {
-                    out.add(new Channel(stream.title, stream.hlsUrl.isEmpty() ? stream.fallbackUrl : stream.hlsUrl));
-                }
+        for (StreamConfig.Stream stream : StreamConfig.MANIFEST) {
+            if (contains(hidden, stream.key)) {
+                continue;
             }
-            save(context, out);
-            prefs.edit().putBoolean(KEY_SEEDED, true).apply();
-            return out;
+            String url = bindings.optString(stream.key, "");
+            if (TextUtils.isEmpty(url)) {
+                url = stream.url();
+            }
+            out.add(new Channel(stream.key, stream.title, url));
         }
-        try {
-            JSONArray array = new JSONArray(prefs.getString(KEY_CHANNELS, "[]"));
-            for (int i = 0; i < array.length(); i++) {
-                JSONObject o = array.getJSONObject(i);
-                String url = o.optString("url", "");
-                if (!TextUtils.isEmpty(url)) {
-                    out.add(new Channel(o.optString("title", ""), url));
-                }
+
+        if (StreamConfig.SHOW_DEMO && !contains(hidden, "demo")) {
+            StreamConfig.Stream demo = StreamConfig.demo();
+            String url = bindings.optString(demo.key, "");
+            if (TextUtils.isEmpty(url)) {
+                url = demo.url();
             }
-        } catch (Exception ignored) {
-            // Corrupt store: fall back to an empty list rather than crashing on a TV.
+            out.add(new Channel(demo.key, demo.title, url));
+        }
+
+        JSONArray extras = readArray(prefs, KEY_EXTRAS);
+        for (int i = 0; i < extras.length(); i++) {
+            JSONObject o = extras.optJSONObject(i);
+            if (o == null) {
+                continue;
+            }
+            String url = o.optString("url", "");
+            if (!TextUtils.isEmpty(url)) {
+                out.add(new Channel("extra", o.optString("title", ""), url));
+            }
         }
         return out;
     }
 
-    static void save(Context context, List<Channel> channels) {
-        JSONArray array = new JSONArray();
-        for (Channel c : channels) {
-            JSONObject o = new JSONObject();
+    /** Bind a URL to a camera key (or add an extra channel when the key is unknown). */
+    static void bind(Context context, String key, String title, String url) {
+        if (TextUtils.isEmpty(url)) {
+            return;
+        }
+        SharedPreferences prefs = prefs(context);
+        if (!TextUtils.isEmpty(key) && (StreamConfig.byKey(key) != null || "demo".equals(key))) {
+            JSONObject bindings = readObject(prefs, KEY_BINDINGS);
             try {
-                o.put("title", c.title);
-                o.put("url", c.url);
+                bindings.put(key, url);
             } catch (Exception ignored) {
-                // org.json only throws on null keys, which we never pass.
+                // org.json only throws on null keys
             }
-            array.put(o);
+            prefs.edit()
+                    .putString(KEY_BINDINGS, bindings.toString())
+                    .putString(StreamConfig.KEY_LAST_TITLE, title == null ? StreamConfig.titleForKey(key) : title)
+                    .apply();
+            unhide(context, key);
+            return;
         }
-        prefs(context).edit().putString(KEY_CHANNELS, array.toString()).apply();
+        upsertExtra(context, title, url);
     }
 
-    /** Add (or refresh) a channel and return the resulting list. */
-    static List<Channel> upsert(Context context, String title, String url) {
+    /** Add (or refresh) a runtime channel. */
+    static void upsertExtra(Context context, String title, String url) {
         String cleanTitle = StreamConfig.titleFor(url, title);
-        List<Channel> channels = load(context);
-        for (int i = 0; i < channels.size(); i++) {
-            if (channels.get(i).url.equals(url)) {
-                channels.set(i, new Channel(cleanTitle, url));
-                save(context, channels);
-                return channels;
+        SharedPreferences prefs = prefs(context);
+        JSONArray extras = readArray(prefs, KEY_EXTRAS);
+        JSONArray next = new JSONArray();
+        boolean replaced = false;
+        for (int i = 0; i < extras.length(); i++) {
+            JSONObject o = extras.optJSONObject(i);
+            if (o == null) {
+                continue;
+            }
+            if (url.equals(o.optString("url", ""))) {
+                replaced = true;
+                put(next, cleanTitle, url);
+            } else {
+                next.put(o);
             }
         }
-        channels.add(new Channel(cleanTitle, url));
-        save(context, channels);
-        return channels;
+        if (!replaced) {
+            put(next, cleanTitle, url);
+        }
+        prefs.edit().putString(KEY_EXTRAS, next.toString()).apply();
     }
 
-    static List<Channel> remove(Context context, String url) {
-        List<Channel> channels = load(context);
-        for (int i = channels.size() - 1; i >= 0; i--) {
-            if (channels.get(i).url.equals(url)) {
-                channels.remove(i);
+    /**
+     * Remove a row. Camera slots are never deleted (the manifest owns them) — they are unbound and
+     * hidden instead, so the viewer can restore them from the picker.
+     */
+    static void remove(Context context, Channel channel) {
+        SharedPreferences prefs = prefs(context);
+        if (channel.isCamera()) {
+            JSONObject bindings = readObject(prefs, KEY_BINDINGS);
+            bindings.remove(channel.key);
+            JSONArray hidden = readArray(prefs, KEY_HIDDEN);
+            if (!contains(hidden, channel.key)) {
+                hidden.put(channel.key);
+            }
+            prefs.edit()
+                    .putString(KEY_BINDINGS, bindings.toString())
+                    .putString(KEY_HIDDEN, hidden.toString())
+                    .apply();
+            return;
+        }
+        JSONArray extras = readArray(prefs, KEY_EXTRAS);
+        JSONArray next = new JSONArray();
+        for (int i = 0; i < extras.length(); i++) {
+            JSONObject o = extras.optJSONObject(i);
+            if (o != null && !channel.url.equals(o.optString("url", ""))) {
+                next.put(o);
             }
         }
-        save(context, channels);
-        return channels;
+        prefs.edit().putString(KEY_EXTRAS, next.toString()).apply();
+    }
+
+    /** Bring every camera slot back (used by the picker's "Restore cameras" row). */
+    static void restoreCameras(Context context) {
+        SharedPreferences prefs = prefs(context);
+        prefs.edit().remove(KEY_HIDDEN).apply();
+    }
+
+    static int boundCount(Context context) {
+        int n = 0;
+        for (Channel c : load(context)) {
+            if (c.isCamera() && c.isBound() && !"demo".equals(c.key)) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /** Very small sanity check so a mistyped URL does not silently become a dead channel. */
@@ -113,6 +196,54 @@ final class ChannelStore {
         }
         String lower = url.toLowerCase(Locale.US);
         return (lower.startsWith("http://") || lower.startsWith("https://")) && MediaUrls.isStream(url);
+    }
+
+    private static void unhide(Context context, String key) {
+        SharedPreferences prefs = prefs(context);
+        JSONArray hidden = readArray(prefs, KEY_HIDDEN);
+        JSONArray next = new JSONArray();
+        for (int i = 0; i < hidden.length(); i++) {
+            if (!key.equals(hidden.optString(i))) {
+                next.put(hidden.optString(i));
+            }
+        }
+        prefs.edit().putString(KEY_HIDDEN, next.toString()).apply();
+    }
+
+    private static void put(JSONArray array, String title, String url) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("title", title);
+            o.put("url", url);
+        } catch (Exception ignored) {
+            // org.json only throws on null keys, which we never pass.
+        }
+        array.put(o);
+    }
+
+    private static boolean contains(JSONArray array, String value) {
+        for (int i = 0; i < array.length(); i++) {
+            if (value.equals(array.optString(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static JSONObject readObject(SharedPreferences prefs, String key) {
+        try {
+            return new JSONObject(prefs.getString(key, "{}"));
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private static JSONArray readArray(SharedPreferences prefs, String key) {
+        try {
+            return new JSONArray(prefs.getString(key, "[]"));
+        } catch (Exception ignored) {
+            return new JSONArray();
+        }
     }
 
     private static SharedPreferences prefs(Context context) {
