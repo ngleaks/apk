@@ -1,0 +1,20 @@
+# Build output
+build/
+buildtools/build/
+buildtools/debug.keystore
+.gradle/
+local.properties
+*.iml
+.idea/
+captures/
+
+# Signing material - never in git
+*.keystore
+*.jks
+keystore.properties
+release.keystore
+signkey/
+
+# OS noise
+.DS_Store
+Thumbs.db

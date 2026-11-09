@@ -1,0 +1,62 @@
+name: Build TV APK
+
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths-ignore: ["**/*.md", "buildtools/dist/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The build needs no Gradle and no Android SDK: it downloads exactly the five tools that
+      # "gradle assembleRelease" would use, from npmjs and pypi, then runs
+      # aapt2 -> javac -> d8 -> apksigner (see buildtools/build_apk.sh).
+      - name: Fetch build tools
+        run: |
+          set -e
+          cd "$RUNNER_TEMP"
+          pip download --no-deps -q -d jdk jdk4py==17.0.9.2
+          python3 -m zipfile -e jdk/*.whl jdkx
+          curl -sL -o minapk.tgz https://registry.npmjs.org/@drxiaozhi/minapk/-/minapk-0.5.1.tgz
+          mkdir -p minapk && tar xzf minapk.tgz -C minapk package/tools
+          curl -sL -o aapt2.tgz https://registry.npmjs.org/aaptjs3/-/aaptjs3-2.0.2.tgz
+          mkdir -p aapt2 && tar xzf aapt2.tgz -C aapt2 package/bin/x64/linux
+          chmod +x aapt2/package/bin/x64/linux/aapt2 minapk/package/tools/apksigner.jar 2>/dev/null || true
+          find jdkx -name java -o -name keytool | xargs chmod +x
+
+      - name: Build APK
+        env:
+          JAVA_HOME: ${{ runner.temp }}/jdkx/jdk4py/java-runtime
+          ANDROID_JAR: ${{ runner.temp }}/minapk/package/tools/android.jar
+          AAPT2: ${{ runner.temp }}/aapt2/package/bin/x64/linux/aapt2
+          D8_JAR: ${{ runner.temp }}/minapk/package/tools/d8.jar
+          APKSIGNER_JAR: ${{ runner.temp }}/minapk/package/tools/apksigner.jar
+          ECJ_JAR: ${{ runner.temp }}/minapk/package/tools/ecj-3.45.0.jar
+          KEYTOOL_JAR: ${{ runner.temp }}/jdkx/jdk4py/java-runtime/lib/keytool.jar
+          # Optional: repo secrets with the old pbbforfree.apk key, so the APK installs as an update.
+          PBB_KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          set -e
+          if [ -n "${PBB_KEYSTORE_B64:-}" ]; then
+            mkdir -p signkey
+            echo "$PBB_KEYSTORE_B64" | base64 -d > signkey/release.keystore
+            cp signkey/release.keystore release.keystore
+            printf 'storeFile=release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "${{ secrets.KEYSTORE_STORE_PASSWORD }}" "${{ secrets.KEYSTORE_ALIAS }}" \
+              "${{ secrets.KEYSTORE_KEY_PASSWORD }}" > keystore.properties
+          fi
+          buildtools/build_apk.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pbb-tv-apk
+          path: buildtools/dist/*.apk
+          if-no-files-found: error
+          retention-days: 30
