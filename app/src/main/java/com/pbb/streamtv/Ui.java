@@ -84,26 +84,26 @@ final class Ui {
         box.setFocusable(true);
         box.setFocusableInTouchMode(true);
         box.setClickable(true);
-        int padH = dp(context, 18);
-        int padV = dp(context, 14);
+        int padH = dp(context, 16);
+        int padV = dp(context, 12);
         box.setPadding(padH, padV, padH, padV);
 
         TextView badge = label(context, badgeText, 11f, badgeTint, true);
         badge.setLetterSpacing(0.16f);
         box.addView(badge);
 
-        TextView glyph = label(context, glyphText, 30f, active ? ACCENT : TEXT_FAINT, true);
-        glyph.setPadding(0, dp(context, 6), 0, dp(context, 4));
+        TextView glyph = label(context, glyphText, 26f, active ? ACCENT : TEXT_FAINT, true);
+        glyph.setPadding(0, dp(context, 4), 0, dp(context, 2));
         box.addView(glyph);
 
-        TextView title = label(context, titleText, 19f, active ? 0xFFFFFFFF : 0xFFB9C6E0, true);
+        TextView title = label(context, titleText, 17f, active ? 0xFFFFFFFF : 0xFFB9C6E0, true);
         title.setMaxLines(2);
         box.addView(title);
 
-        TextView detail = label(context, detailText, 12f, TEXT_MUTED, false);
-        detail.setLineSpacing(dp(context, 2), 1f);
-        detail.setPadding(0, dp(context, 8), 0, 0);
-        detail.setMaxLines(4);
+        TextView detail = label(context, detailText, 11.5f, TEXT_MUTED, false);
+        detail.setLineSpacing(dp(context, 1), 1f);
+        detail.setPadding(0, dp(context, 5), 0, 0);
+        detail.setMaxLines(3);
         box.addView(detail);
 
         if (heightDp > 0) {
@@ -158,11 +158,11 @@ final class Ui {
         box.setFocusable(true);
         box.setFocusableInTouchMode(true);
         box.setClickable(true);
-        box.setPadding(dp(context, 20), dp(context, 12), dp(context, 20), dp(context, 12));
+        box.setPadding(dp(context, 16), dp(context, 10), dp(context, 16), dp(context, 10));
 
-        TextView glyph = label(context, glyphText, 26f, ACCENT, true);
+        TextView glyph = label(context, glyphText, 24f, ACCENT, true);
         glyph.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams glyphLp = new LinearLayout.LayoutParams(dp(context, 44), dp(context, 44));
+        LinearLayout.LayoutParams glyphLp = new LinearLayout.LayoutParams(dp(context, 40), dp(context, 40));
         glyphLp.rightMargin = dp(context, 16);
         glyph.setLayoutParams(glyphLp);
         box.addView(glyph);
@@ -176,10 +176,10 @@ final class Ui {
         badge.setLetterSpacing(0.16f);
         column.addView(badge);
 
-        TextView title = label(context, titleText, 18f, 0xFFFFFFFF, true);
+        TextView title = label(context, titleText, 16f, 0xFFFFFFFF, true);
         column.addView(title);
 
-        TextView detail = label(context, detailText, 11.5f, TEXT_MUTED, false);
+        TextView detail = label(context, detailText, 11f, TEXT_MUTED, false);
         detail.setMaxLines(2);
         detail.setPadding(0, dp(context, 3), 0, 0);
         column.addView(detail);

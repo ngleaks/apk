@@ -82,6 +82,9 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     private LinearLayout homeTitle;
     private TextView homeSubtitle;
     private LinearLayout homeCards;
+    private LinearLayout homeCards2;
+    /** Row currently being filled while the home screen is rebuilt. */
+    private LinearLayout homeRow;
     private LinearLayout homeCameras;
     private TextView homeHint;
 
@@ -99,6 +102,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        Net.refresh(this);
         io = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "pbb-stream");
             t.setDaemon(true);
@@ -167,7 +171,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
 
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.setPadding(Ui.dp(this, 48), Ui.dp(this, 26), Ui.dp(this, 48), Ui.dp(this, 22));
+        column.setPadding(Ui.dp(this, 46), Ui.dp(this, 20), Ui.dp(this, 46), Ui.dp(this, 18));
         scroll.addView(column, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -176,7 +180,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         homeTitle.setGravity(Gravity.CENTER_VERTICAL);
         column.addView(homeTitle);
 
-        homeSubtitle = Ui.label(this, "PBB 3.0 · All Access", 17f, Ui.TEXT_MUTED, false);
+        homeSubtitle = Ui.label(this, "PBB 3.0 · All Access", 15f, Ui.TEXT_MUTED, false);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         subLp.topMargin = Ui.dp(this, 6);
@@ -188,7 +192,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         camHeader.setLetterSpacing(0.18f);
         LinearLayout.LayoutParams camHeaderLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        camHeaderLp.topMargin = Ui.dp(this, 20);
+        camHeaderLp.topMargin = Ui.dp(this, 14);
         camHeader.setLayoutParams(camHeaderLp);
         column.addView(camHeader);
 
@@ -201,28 +205,29 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         column.addView(homeCameras);
 
         // ---- actions ----
-        TextView actionHeader = Ui.label(this, "MORE", 13f, Ui.ACCENT, false);
-        actionHeader.setLetterSpacing(0.18f);
-        LinearLayout.LayoutParams actionHeaderLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actionHeaderLp.topMargin = Ui.dp(this, 20);
-        actionHeader.setLayoutParams(actionHeaderLp);
-        column.addView(actionHeader);
 
         homeCards = new LinearLayout(this);
         homeCards.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams cardsLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardsLp.topMargin = Ui.dp(this, 8);
+        cardsLp.topMargin = Ui.dp(this, 10);
         homeCards.setLayoutParams(cardsLp);
         column.addView(homeCards);
 
+        homeCards2 = new LinearLayout(this);
+        homeCards2.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams cards2Lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cards2Lp.topMargin = Ui.dp(this, 8);
+        homeCards2.setLayoutParams(cards2Lp);
+        column.addView(homeCards2);
+
         homeHint = Ui.label(this,
                 "OK watch   ·   ← → pick   ·   ▲ ▼ move   ·   long OK remove   ·   BACK exit",
-                12f, Ui.TEXT_FAINT, false);
+                11f, Ui.TEXT_FAINT, false);
         LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hintLp.topMargin = Ui.dp(this, 16);
+        hintLp.topMargin = Ui.dp(this, 8);
         homeHint.setLayoutParams(hintLp);
         column.addView(homeHint);
 
@@ -248,8 +253,8 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         android.widget.ImageView mark = new android.widget.ImageView(this);
         mark.setImageResource(R.drawable.splash_logo);
         mark.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-        homeTitle.addView(mark, new LinearLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 52)));
-        TextView word = Ui.label(this, "PBBforFREE", 28f, Color.WHITE, true);
+        homeTitle.addView(mark, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+        TextView word = Ui.label(this, "PBBforFREE", 24f, Color.WHITE, true);
         LinearLayout.LayoutParams wordLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wordLp.leftMargin = Ui.dp(this, 16);
@@ -285,7 +290,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
                                     ? "Live link fetched each time you press OK"
                                     : "Bind a stream URL once — press OK"));
             Ui.Card card = Ui.card(this, "CAM", badgeColor(channel),
-                    cameraGlyph(channel), channel.title, detail, ready, 176);
+                    cameraGlyph(channel), channel.title, detail, ready, 148);
             card.view.setOnClickListener(v -> openChannel(channel));
             card.view.setOnLongClickListener(v -> {
                 if (!channel.isBound()) {
@@ -314,26 +319,28 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
             }
         }
 
-        // ---- actions ----
+        // ---- actions: three per row, two rows ----
         homeCards.removeAllViews();
+        homeCards2.removeAllViews();
+        startActionRows();
         Ui.Card add = Ui.cardRow(this, "SETUP", Ui.ACCENT,
                 "+", "Add a stream",
                 "Paste a .m3u8 link with the on-screen keyboard, or push it from a PC over adb.",
-                96);
+                88);
         add.view.setOnClickListener(v -> showAddDialog());
         addCard(add);
 
         Ui.Card site = Ui.cardRow(this, "SOURCE", Ui.WARN,
                 "↗", "PBB website",
                 "Opens pbblivestream.vercel.app in the system browser when you need the link text.",
-                96);
+                88);
         site.view.setOnClickListener(v -> openExternal(StreamConfig.LANDING_PAGE));
         addCard(site);
 
         Ui.Card restore = Ui.cardRow(this, "RESET", Ui.TEXT_MUTED,
                 "↺", "Restore cameras",
                 "Brings back camera slots removed with a long OK press, and forgets the auto-open.",
-                96);
+                88);
         restore.view.setOnClickListener(v -> {
             ChannelStore.restoreCameras(this);
             getSharedPreferences(StreamConfig.PREFS, MODE_PRIVATE).edit()
@@ -348,9 +355,30 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         Ui.Card importCard = Ui.cardRow(this, "LINKS", Ui.ACCENT,
                 "⇣", "Import links",
                 "Pulls a small JSON link file (one URL or one resolver endpoint per camera) and binds all three cameras at once.",
-                96);
+                88);
         importCard.view.setOnClickListener(v -> showImportDialog());
         addCard(importCard);
+
+        Ui.Card paste = Ui.cardRow(this, "NO TYPING", Ui.ACCENT,
+                "⌘", "Paste from clipboard",
+                "Copied the link on your phone? Send it to the TV and it binds to a camera with OK.",
+                88);
+        paste.view.setOnClickListener(v -> showClipboardDialog());
+        addCard(paste);
+
+        Ui.Card headers = Ui.cardRow(this, "FIX 403", Ui.WARN,
+                "◎", "Request headers",
+                "Referer / Origin / Cookie sent with each request. Most 'plays in the page, 403 here' cases end here.",
+                88);
+        headers.view.setOnClickListener(v -> showHeadersDialog());
+        addCard(headers);
+
+        Ui.Card probe = Ui.cardRow(this, "DIAGNOSE", Ui.TEXT_MUTED,
+                "✓", "Test camera links",
+                "Asks each bound link what it answers (HTTP 200 vs 401/403) so a dead link is obvious.",
+                88);
+        probe.view.setOnClickListener(v -> probeLinks());
+        addCard(probe);
 
         int bound = ChannelStore.boundCount(this);
         homeSubtitle.setText(bound == 0
@@ -389,14 +417,178 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     }
 
     private void addCard(Ui.Card card) {
-        LinearLayout.LayoutParams lp = cardParams(1f, homeCards.getChildCount() == 0 ? 0 : 18);
+        if (homeRow == null || homeRow.getChildCount() >= 3) {
+            addHeaderRow(homeRow == null ? null : homeCards2);
+        }
+        int index = homeRow.getChildCount();
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.dp(this, 88), 1f);
+        lp.leftMargin = Ui.dp(this, index == 0 ? 0 : 14);
         card.view.setLayoutParams(lp);
-        homeCards.addView(card.view);
+        homeRow.addView(card.view);
+    }
+
+    /** Reset the row cursor; called before the action cards are (re)built. */
+    private void startActionRows() {
+        homeRow = null;
+    }
+
+    private void addHeaderRow(LinearLayout target) {
+        homeRow = target;
+    }
+
+    private void showClipboardDialog() {
+        final String clip = clipboardText();
+        String url = RemoteSources.extractStreamUrl(clip);
+        if (url.isEmpty() && ChannelStore.looksPlayable(clip)) {
+            url = clip.trim();
+        }
+        if (url.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Nothing to paste")
+                    .setMessage("Copy a stream link on your phone first (or send it with adb), then open "
+                            + "this again. Tip: pbblivetv://add?key=dining&url=… from a PC is faster.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+        final String streamUrl = url;
+        final String[] labels = new String[StreamConfig.MANIFEST.length + 1];
+        for (int i = 0; i < StreamConfig.MANIFEST.length; i++) {
+            labels[i] = "Bind to " + StreamConfig.MANIFEST[i].title;
+        }
+        labels[labels.length - 1] = "Add as an extra channel";
+        new AlertDialog.Builder(this)
+                .setTitle("Clipboard link")
+                .setItems(labels, (d, which) -> {
+                    if (which >= StreamConfig.MANIFEST.length) {
+                        ChannelStore.upsertExtra(this, null, streamUrl);
+                        play(streamUrl, null, "extra");
+                    } else {
+                        StreamConfig.Stream camera = StreamConfig.MANIFEST[which];
+                        ChannelStore.bind(this, camera.key, camera.title, streamUrl);
+                        ChannelStore.bindResolver(this, camera.key, "");
+                        rebuildHome();
+                        play(streamUrl, camera.title, camera.key);
+                    }
+                })
+                .show();
+    }
+
+    @SuppressWarnings("deprecation")
+    private String clipboardText() {
+        try {
+            android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null || !clipboard.hasPrimaryClip() || clipboard.getPrimaryClip() == null) {
+                return "";
+            }
+            android.content.ClipData.Item item = clipboard.getPrimaryClip().getItemAt(0);
+            CharSequence text = item == null ? null : item.coerceToText(this);
+            return text == null ? "" : text.toString().trim();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** Probe every bound camera on the IO thread and show one readable report. */
+    private void probeLinks() {
+        final List<ChannelStore.Channel> channels = ChannelStore.load(this);
+        Toast.makeText(this, "Testing links…", Toast.LENGTH_SHORT).show();
+        io.execute(() -> {
+            StringBuilder report = new StringBuilder();
+            for (ChannelStore.Channel channel : channels) {
+                String resolver = ChannelStore.resolverFor(this, channel.key);
+                String target = channel.isBound() ? channel.url : resolver;
+                if (target.isEmpty()) {
+                    continue;
+                }
+                report.append(cameraShortName(channel)).append('\n');
+                report.append("  ").append(RemoteSources.probe(target)).append('\n');
+                if (!resolver.isEmpty() && channel.isBound()) {
+                    report.append("  resolver: ").append(RemoteSources.probe(resolver)).append('\n');
+                }
+                report.append('\n');
+            }
+            if (report.length() == 0) {
+                report.append("Nothing bound yet. Press OK on a camera card to paste a link.");
+            }
+            report.append("\nHeaders in use: Referer ").append(
+                    Net.hasCustomReferer(this) ? Net.referer(this) : "(none)");
+            final String text = report.toString().trim();
+            ui.post(() -> {
+                if (isFinishing()) {
+                    return;
+                }
+                new AlertDialog.Builder(this)
+                        .setTitle("Camera link report")
+                        .setMessage(text)
+                        .setPositiveButton("OK", null)
+                        .setNeutralButton("Headers", (d, w) -> showHeadersDialog())
+                        .show();
+            });
+        });
+    }
+
+    private void showHeadersDialog() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(Ui.dp(this, 24), Ui.dp(this, 8), Ui.dp(this, 24), 0);
+
+        final EditText referer = headerInput("Referer — e.g. https://www.iwanttfc.com/", Net.referer(this));
+        final EditText origin = headerInput("Origin (blank = taken from the referer)", "");
+        final EditText cookie = headerInput("Cookie (optional — paste only if you own the session)", Net.cookie(this));
+        final EditText agent = headerInput("User-Agent", Net.userAgent(this));
+        form.addView(sectionLabel("REFERER"));
+        form.addView(referer);
+        form.addView(sectionLabel("ORIGIN"));
+        form.addView(origin);
+        form.addView(sectionLabel("COOKIE"));
+        form.addView(cookie);
+        form.addView(sectionLabel("USER-AGENT"));
+        form.addView(agent);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Request headers")
+                .setMessage("Some CDNs answer 403 to a bare player. These headers are sent with every "
+                        + "playlist fetch and media request, like a page would send them.")
+                .setView(form)
+                .setPositiveButton("Save", (d, w) -> {
+                    Net.save(this, agent.getText().toString(), referer.getText().toString(),
+                            origin.getText().toString(), cookie.getText().toString());
+                    rebuildHome();
+                    Toast.makeText(this, "Headers saved · press OK on a camera to retry",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("Reset", (d, w) -> {
+                    Net.clear(this);
+                    rebuildHome();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private EditText headerInput(String hint, String value) {
+        EditText input = new EditText(this);
+        input.setHint(hint);
+        input.setSingleLine(true);
+        input.setTextSize(14f);
+        input.setText(value == null ? "" : value);
+        input.setTextColor(Color.WHITE);
+        input.setHintTextColor(Ui.TEXT_FAINT);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        return input;
+    }
+
+    private TextView sectionLabel(String text) {
+        TextView label = Ui.label(this, text, 10f, Ui.ACCENT, true);
+        label.setLetterSpacing(0.16f);
+        label.setPadding(0, Ui.dp(this, 12), 0, 0);
+        return label;
     }
 
     /** Weight-based row params with a fixed pixel height already set by {@link Ui#cardRow}. */
     private LinearLayout.LayoutParams cardParams(float weight, int leftMarginDp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.dp(this, 96), weight);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.dp(this, 88), weight);
         lp.leftMargin = Ui.dp(this, leftMarginDp);
         return lp;
     }
@@ -638,8 +830,8 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         retryIndex = 0;
 
         engine = HlsPlaylist.looksLikePlaylist(url) || isLikelyHls(url)
-                ? new SegmentPlayer(this, io)
-                : new FilePlayer(this);
+                ? new SegmentPlayer(this, this, io)
+                : new FilePlayer(this, this);
         overlay.setCentreMessage("Connecting…\n" + currentTitle, 2);
         overlay.setTitle(currentTitle, "", engine.isLive());
         surfaceHost.requestFocus();
@@ -978,6 +1170,7 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     protected void onStart() {
         super.onStart();
         ApiCompat.goImmersive(getWindow().getDecorView());
+        Net.refresh(this);
         if (!noisyRegistered) {
             registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
             noisyRegistered = true;

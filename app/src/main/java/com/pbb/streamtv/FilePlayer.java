@@ -22,7 +22,10 @@ final class FilePlayer implements StreamEngine {
     private boolean prepared = false;
     private State state = State.IDLE;
 
-    FilePlayer(Listener listener) {
+    private final android.content.Context context;
+
+    FilePlayer(android.content.Context context, Listener listener) {
+        this.context = context;
         this.listener = listener;
     }
 
@@ -59,7 +62,7 @@ final class FilePlayer implements StreamEngine {
                 emit(State.ERROR, "media " + what + "/" + extra);
                 return true;
             });
-            mp.setDataSource(url);
+            Net.applyTo(mp, this.context, url);
             mp.prepareAsync();
         } catch (Exception e) {
             emit(State.ERROR, e.getMessage() == null ? "cannot open" : e.getMessage());

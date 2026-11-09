@@ -153,6 +153,41 @@ final class RemoteSources {
         return matcher.find() ? matcher.group() : "";
     }
 
+    /**
+     * Human-readable health check for a link: status code, size and the first playlist line.
+     * This is what tells "the link is fine" apart from "the CDN wants a session" on a 403.
+     */
+    static String probe(String url) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setConnectTimeout(TIMEOUT_MS);
+            connection.setReadTimeout(TIMEOUT_MS);
+            connection.setInstanceFollowRedirects(true);
+            for (java.util.Map.Entry<String, String> header : Net.headers().entrySet()) {
+                connection.setRequestProperty(header.getKey(), header.getValue());
+            }
+            int code = connection.getResponseCode();
+            String type = connection.getContentType();
+            if (code < 200 || code >= 300) {
+                return "HTTP " + code + (code == 403 || code == 401 ? " (session/geo locked)" : "");
+            }
+            InputStream in = connection.getInputStream();
+            byte[] head = new byte[96];
+            int read = in.read(head);
+            in.close();
+            String first = read > 0 ? new String(head, 0, read, "UTF-8").split("\r?\n")[0] : "";
+            return "HTTP " + code + " · " + (type == null ? "?" : type)
+                    + (first.isEmpty() ? "" : " · " + first.trim());
+        } catch (Exception e) {
+            return "ERR " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
     static String fetch(String url) throws IOException {
         HttpURLConnection connection = null;
         try {

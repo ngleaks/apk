@@ -42,7 +42,10 @@ final class SegmentPlayer implements StreamEngine {
     private boolean wantPlay = true;
     private boolean prepared = false;
 
-    SegmentPlayer(Listener listener, ExecutorService io) {
+    private final android.content.Context context;
+
+    SegmentPlayer(android.content.Context context, Listener listener, ExecutorService io) {
+        this.context = context;
         this.listener = listener;
         this.io = io;
     }
@@ -50,10 +53,12 @@ final class SegmentPlayer implements StreamEngine {
     static final class Segment {
         final String url;
         final long sequence;
+        final java.util.Map<String, String> headers;
 
         Segment(String url, long sequence) {
             this.url = url;
             this.sequence = sequence;
+            this.headers = Net.headers();
         }
     }
 
@@ -192,7 +197,7 @@ final class SegmentPlayer implements StreamEngine {
                 return true;
             });
             applySurface(mp);
-            mp.setDataSource(segment.url);
+            Net.applyTo(mp, this.context, segment.url, segment.headers);
             mp.prepareAsync();
             if (listener != null) {
                 listener.onState(State.BUFFERING, "opening segment");

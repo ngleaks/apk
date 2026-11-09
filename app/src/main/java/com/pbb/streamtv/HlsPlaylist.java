@@ -190,7 +190,9 @@ final class HlsPlaylist {
             connection.setConnectTimeout(10_000);
             connection.setReadTimeout(15_000);
             connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "PBBforFREE-TV/1.0");
+            for (Map.Entry<String, String> header : Net.headers().entrySet()) {
+                connection.setRequestProperty(header.getKey(), header.getValue());
+            }
             connection.setRequestProperty("Accept", "*/*");
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {

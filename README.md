@@ -2,10 +2,10 @@
 
 A small native TV build that replaces the phone-only WebView wrapper in `pbbforfree.apk`.
 
-**Ready to install:** [`pbb-tv-1.2.0.apk`](pbb-tv-1.2.0.apk) (886 KB, minSdk 24, targetSdk 35).
-Sideload it with `adb install pbb-tv-1.2.0.apk`, or download it on the TV with Downloader from the
+**Ready to install:** [`pbb-tv-1.3.0.apk`](pbb-tv-1.3.0.apk) (894 KB, minSdk 24, targetSdk 35).
+Sideload it with `adb install pbb-tv-1.3.0.apk`, or download it on the TV with Downloader from the
 raw link on branch `arena/d7765815-apk`
-(`https://raw.githubusercontent.com/ngleaks/apk/arena/d7765815-apk/pbb-tv-1.2.0.apk`).
+(`https://raw.githubusercontent.com/ngleaks/apk/arena/d7765815-apk/pbb-tv-1.3.0.apk`).
 Every build here is signed with the same local key, so 1.2.0 installs straight over 1.0.0/1.1.0.
 
 The original APK is a `freewebtoapk.com` template that opens `pbblivestream.vercel.app` in a
@@ -67,6 +67,9 @@ and that binding is kept on the device across app updates.
 | Open the website | "PBB website" row → system browser (never inside the app) |
 | Bind a camera to a **resolver endpoint** | paste the endpoint URL in the same box — it is asked for the current stream URL each time you press OK |
 | Import all three at once | "Import links" row → URL of a small JSON link file (below) |
+| Send a link from the phone | copy it on the phone, push it to the TV, then "Paste from clipboard" → pick a camera |
+| Stream answers 403 | "Request headers" → set `Referer` (e.g. `https://www.iwanttfc.com/`), `Origin`, optional `Cookie`; every playlist and segment request carries them |
+| Is the link alive? | "Test camera links" → HTTP status + content type + first playlist line for every camera |
 
 `key` must be `all`, `dining` or `external`; omit it and the URL is saved as an extra channel.
 
@@ -74,6 +77,22 @@ The app ships with **no** PBB URLs: they are behind iWant and not public (Main i
 Dining/External are behind a subscription). The one pre-filled row is a clearly labelled
 `Demo · HLS test stream` (Apple's public sample) so you can prove the TV, the network and the
 decoders work before pasting a real link.
+
+### Why a link that plays in a page can fail in a player
+
+Three things only, in this order — the app has a tool for each:
+
+1. **Referer / Origin check** (very common on CDNs) → *Request headers*. `MediaPlayer` cannot do
+   this by itself, the app passes a header map into `setDataSource(Context, Uri, Map)`, and the
+   playlist fetcher sends the same headers.
+2. **The URL rotates** (token/expiry) → a resolver endpoint, or the error card's "change link".
+3. **The stream is not a plain HLS/DASH file** — DRM ("Widevine"), or an authenticated session that
+   only the site can mint. Nothing on the TV can playback that, and no website build changes it;
+   the *Test camera links* row will show `HTTP 401/403` or `ERR` for those.
+
+Headers live in shared preferences on the device (`Referer`, `Origin`, `Cookie`, `User-Agent`) and
+are easy to reset from the same dialog. The app never mints a token, never performs an iWant login
+and never decrypts DRM — it forwards what you already have.
 
 ### Link file / resolver endpoints (no site needed)
 
