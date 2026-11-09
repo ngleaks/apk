@@ -2,11 +2,11 @@
 
 A small native TV build that replaces the phone-only WebView wrapper in `pbbforfree.apk`.
 
-**Ready to install:** [`pbb-tv-1.1.0.apk`](pbb-tv-1.1.0.apk) (882 KB, minSdk 24, targetSdk 35).
-Sideload it with `adb install pbb-tv-1.1.0.apk`, or download it on the TV with Downloader from the
+**Ready to install:** [`pbb-tv-1.2.0.apk`](pbb-tv-1.2.0.apk) (886 KB, minSdk 24, targetSdk 35).
+Sideload it with `adb install pbb-tv-1.2.0.apk`, or download it on the TV with Downloader from the
 raw link on branch `arena/d7765815-apk`
-(`https://raw.githubusercontent.com/ngleaks/apk/arena/d7765815-apk/pbb-tv-1.1.0.apk`).
-Upgrading from 1.0.0 keeps the same signing key, so it installs over it.
+(`https://raw.githubusercontent.com/ngleaks/apk/arena/d7765815-apk/pbb-tv-1.2.0.apk`).
+Every build here is signed with the same local key, so 1.2.0 installs straight over 1.0.0/1.1.0.
 
 The original APK is a `freewebtoapk.com` template that opens `pbblivestream.vercel.app` in a
 WebView. That cannot be driven by a TV remote, has no real leanback banner, no channel switching,
@@ -65,6 +65,8 @@ and that binding is kept on the device across app updates.
 | Bake a link into the APK | fill the URL in `StreamConfig.MANIFEST` and rebuild |
 | Remove | long-press OK on a card (camera slots can be restored with "Restore cameras") |
 | Open the website | "PBB website" row → system browser (never inside the app) |
+| Bind a camera to a **resolver endpoint** | paste the endpoint URL in the same box — it is asked for the current stream URL each time you press OK |
+| Import all three at once | "Import links" row → URL of a small JSON link file (below) |
 
 `key` must be `all`, `dining` or `external`; omit it and the URL is saved as an extra channel.
 
@@ -72,6 +74,31 @@ The app ships with **no** PBB URLs: they are behind iWant and not public (Main i
 Dining/External are behind a subscription). The one pre-filled row is a clearly labelled
 `Demo · HLS test stream` (Apple's public sample) so you can prove the TV, the network and the
 decoders work before pasting a real link.
+
+### Link file / resolver endpoints (no site needed)
+
+A "resolver" is any HTTPS endpoint that answers with the current stream URL — JSON, plain text or a
+playlist body. The app pulls the first `.m3u8` / `.mpd` out of it (`RemoteSources.extractStreamUrl`,
+also handles `\/`-escaped JSON and `&amp;`). That is the piece a Vercel function would do, and it is
+all the app needs from a server:
+
+```json
+{ "channels": [
+  { "key": "all",      "url": "https://cdn.example/main.m3u8" },
+  { "key": "dining",   "resolver": "https://cdn.example/api/live?cam=dining" },
+  { "key": "external", "resolver": "https://cdn.example/api/live?cam=external" }
+] }
+```
+
+`"key"` is `all` / `dining` / `external` (any other key becomes an extra channel). Host the file
+anywhere — a Vercel static file is enough, so is a GitHub raw URL — then either point
+`StreamConfig.REMOTE_CONFIG_URL` at it and rebuild, or paste it once on the TV with **Import links**
+(it is remembered). Resolver-only cameras show `READY` too: pressing OK shows "Fetching link…",
+resolves, then plays; a failure leaves the usual "Could not get the link" card, and OK there opens
+the link box again.
+
+The TV app itself is never a website: it has no WebView, no bundled HTML, and it renders no remote
+page. Only the small link lookups above ever touch a server; playback is a native HLS/DASH path.
 
 ### Where the links come from
 
@@ -96,6 +123,14 @@ ABR, no trick play on live, brief gap if a segment stalls.
 * **No ads / IAP / push SDKs.** They were disabled in the old config anyway.
 * **No page scraping and no login.** Point the camera slots at streams you are allowed to
   rebroadcast; there is no credential storage, no WebView cookie jar and no account handling.
+
+### What this app deliberately cannot do
+
+* **Bypass iWant's subscription.** Dining/External are paid tiers; the app plays a URL, it does not
+  mint a session, a token or a DRM key. Pointing it at a genuinely open URL is the only thing that
+  makes those cameras work — no site or APK can change that.
+* **Scrape the Vercel page.** The page keeps its URLs inside an embedded player; the app never
+  loads it, so there is nothing to scrape and nothing to break when the site changes.
 
 ⚠️ Content rights: "PBB" is ABS-CBN's. Ship this only with streams you own or are licensed to
 rebroadcast, otherwise expect a Play Store takedown regardless of how good the player is.

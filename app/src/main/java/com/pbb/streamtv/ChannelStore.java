@@ -29,6 +29,8 @@ final class ChannelStore {
     private static final String KEY_BINDINGS = "bindings";   // key -> url
     private static final String KEY_EXTRAS = "extras";       // [ {title,url} ]
     private static final String KEY_HIDDEN = "hidden";       // ["demo"]
+    private static final String KEY_RESOLVERS = "resolvers"; // key -> endpoint
+    private static final String KEY_REMOTE = "remote_url";   // last link file pulled
 
     private ChannelStore() {
     }
@@ -52,6 +54,7 @@ final class ChannelStore {
         boolean isBound() {
             return !TextUtils.isEmpty(url);
         }
+
     }
 
     /** All rows, cameras first in manifest order, then extras. Bindings are merged in. */
@@ -179,10 +182,83 @@ final class ChannelStore {
         prefs.edit().remove(KEY_HIDDEN).apply();
     }
 
+    /** Resolver endpoint bound to a camera key, or "". */
+    static String resolverFor(Context context, String key) {
+        if (TextUtils.isEmpty(key)) {
+            return "";
+        }
+        return readObject(prefs(context), KEY_RESOLVERS).optString(key, "");
+    }
+
+    /** Save (or clear) the resolver endpoint of a camera key. */
+    static void bindResolver(Context context, String key, String endpoint) {
+        if (TextUtils.isEmpty(key)) {
+            return;
+        }
+        SharedPreferences prefs = prefs(context);
+        JSONObject resolvers = readObject(prefs, KEY_RESOLVERS);
+        try {
+            if (TextUtils.isEmpty(endpoint)) {
+                resolvers.remove(key);
+            } else {
+                resolvers.put(key, endpoint);
+            }
+        } catch (Exception ignored) {
+            // org.json only throws on null keys
+        }
+        prefs.edit().putString(KEY_RESOLVERS, resolvers.toString()).apply();
+    }
+
+    /** Apply a link file (see {@link RemoteSources}) in one go. */
+    static void applyRemote(Context context, List<RemoteSources.Entry> entries) {
+        SharedPreferences prefs = prefs(context);
+        JSONObject bindings = readObject(prefs, KEY_BINDINGS);
+        JSONObject resolvers = readObject(prefs, KEY_RESOLVERS);
+        JSONArray extras = readArray(prefs, KEY_EXTRAS);
+        for (RemoteSources.Entry e : entries) {
+            boolean camera = !TextUtils.isEmpty(e.key)
+                    && (StreamConfig.byKey(e.key) != null || "demo".equals(e.key));
+            try {
+                if (camera) {
+                    if (!e.url.isEmpty()) {
+                        bindings.put(e.key, e.url);
+                        resolvers.remove(e.key);
+                    } else if (!e.resolver.isEmpty()) {
+                        bindings.remove(e.key);
+                        resolvers.put(e.key, e.resolver);
+                    }
+                } else if (!e.url.isEmpty()) {
+                    put(extras, e.title.isEmpty() ? StreamConfig.titleFor(e.url, null) : e.title, e.url);
+                }
+            } catch (Exception ignored) {
+                // org.json only throws on null keys
+            }
+        }
+        prefs.edit()
+                .putString(KEY_BINDINGS, bindings.toString())
+                .putString(KEY_RESOLVERS, resolvers.toString())
+                .putString(KEY_EXTRAS, extras.toString())
+                .remove(KEY_HIDDEN)
+                .apply();
+        rememberRemote(context, "");
+    }
+
+    static void rememberRemote(Context context, String url) {
+        if (TextUtils.isEmpty(url)) {
+            return;
+        }
+        prefs(context).edit().putString(KEY_REMOTE, url).apply();
+    }
+
+    static String lastRemote(Context context) {
+        return prefs(context).getString(KEY_REMOTE, "");
+    }
+
     static int boundCount(Context context) {
         int n = 0;
         for (Channel c : load(context)) {
-            if (c.isCamera() && c.isBound() && !"demo".equals(c.key)) {
+            boolean bound = c.isBound() || !TextUtils.isEmpty(resolverFor(context, c.key));
+            if (c.isCamera() && bound && !"demo".equals(c.key)) {
                 n++;
             }
         }

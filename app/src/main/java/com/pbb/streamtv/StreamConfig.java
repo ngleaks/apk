@@ -59,6 +59,12 @@ final class StreamConfig {
     static final String KEY_LAST_TITLE = "last_title";
     static final String KEY_LAST_KEY = "last_key";
 
+    /**
+     * Optional link file (JSON) the TV app can pull with "Import links": maps camera keys to a
+     * stream URL or to a resolver endpoint. Empty = feature hidden. See {@link RemoteSources}.
+     */
+    static final String REMOTE_CONFIG_URL = "";
+
     private StreamConfig() {
     }
 

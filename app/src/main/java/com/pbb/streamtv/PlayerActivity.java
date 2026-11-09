@@ -274,14 +274,18 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
                 continue;
             }
             boolean demo = "demo".equals(channel.key);
-            String badge = demo ? "TEST" : (channel.isBound() ? "READY" : "NOT SET");
+            boolean hasResolver = !ChannelStore.resolverFor(this, channel.key).isEmpty();
+            boolean ready = channel.isBound() || hasResolver;
+            String badge = demo ? "TEST" : (ready ? "READY" : "NOT SET");
             String detail = demo
                     ? "Apple sample stream · proves the player works"
                     : (channel.isBound()
                             ? "Plays straight on this TV, no login"
-                            : "Bind a stream URL once — press OK");
+                            : (hasResolver
+                                    ? "Live link fetched each time you press OK"
+                                    : "Bind a stream URL once — press OK"));
             Ui.Card card = Ui.card(this, "CAM", badgeColor(channel),
-                    cameraGlyph(channel), channel.title, detail, channel.isBound(), 176);
+                    cameraGlyph(channel), channel.title, detail, ready, 176);
             card.view.setOnClickListener(v -> openChannel(channel));
             card.view.setOnLongClickListener(v -> {
                 if (!channel.isBound()) {
@@ -340,6 +344,13 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
             rebuildHome();
         });
         addCard(restore);
+
+        Ui.Card importCard = Ui.cardRow(this, "LINKS", Ui.ACCENT,
+                "⇣", "Import links",
+                "Pulls a small JSON link file (one URL or one resolver endpoint per camera) and binds all three cameras at once.",
+                96);
+        importCard.view.setOnClickListener(v -> showImportDialog());
+        addCard(importCard);
 
         int bound = ChannelStore.boundCount(this);
         homeSubtitle.setText(bound == 0
@@ -407,11 +418,62 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     // ------------------------------------------------------------------ binding / adding streams
 
     private void openChannel(ChannelStore.Channel channel) {
+        String resolver = ChannelStore.resolverFor(this, channel.key);
         if (channel.isBound()) {
             play(channel.url, channel.title, channel.key);
-            return;
+        } else if (!resolver.isEmpty()) {
+            playResolved(channel.key, channel.title, resolver);
+        } else {
+            showBindDialog(channel);
         }
-        showBindDialog(channel);
+    }
+
+    /**
+     * Ask a resolver endpoint for the current URL of a camera, then play it. Runs off the main
+     * thread; the overlay shows "Fetching link…" meanwhile so a slow endpoint never looks frozen.
+     */
+    private void playResolved(String key, String title, String resolverUrl) {
+        final String label = title == null || title.isEmpty() ? StreamConfig.titleForKey(key) : title;
+        watching = true;
+        home.setVisibility(View.GONE);
+        overlay.setVisibility(View.VISIBLE);
+        overlay.setShowLogo(false);
+        overlay.setTitle(label, "", true);
+        overlay.setCentreMessage("Fetching link…", 1);
+        setChromeVisible(true);
+        ui.removeCallbacks(retryRunnable);
+        if (engine != null) {
+            engine.release();
+            engine = null;
+        }
+        currentKey = key == null ? "" : key;
+        currentTitle = label;
+        currentUrl = "";
+        pendingUrl = resolverUrl;
+        io.execute(() -> {
+            String url = "";
+            String error = "";
+            try {
+                url = RemoteSources.resolve(resolverUrl);
+            } catch (Exception e) {
+                error = e.getMessage() == null ? "resolver failed" : e.getMessage();
+            }
+            final String resolved = url;
+            final String failure = error;
+            ui.post(() -> {
+                if (!watching) {
+                    return;
+                }
+                if (!resolved.isEmpty()) {
+                    play(resolved, label, currentKey);
+                } else {
+                    overlay.setCentreMessage("Could not get the link"
+                            + (failure.isEmpty() ? "" : "\n" + failure)
+                            + "\n\n← cameras   ·   OK change link", 4);
+                    setChromeVisible(true);
+                }
+            });
+        });
     }
 
     private void showBindDialog(final ChannelStore.Channel channel) {
@@ -424,16 +486,73 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
                 .setPositiveButton("Save & play", (d, w) -> {
                     String url = input.getText().toString().trim();
                     if (!ChannelStore.looksPlayable(url)) {
-                        notifyCouldNotSave(url);
+                        // Not a direct stream: keep it if it can hand one out at play time.
+                        if (url.startsWith("http")) {
+                            ChannelStore.bindResolver(this, channel.key, url);
+                            rebuildHome();
+                            playResolved(channel.key, channel.title, url);
+                        } else {
+                            notifyCouldNotSave(url);
+                        }
                         return;
                     }
                     ChannelStore.bind(this, channel.key, channel.title, url);
+                    ChannelStore.bindResolver(this, channel.key, "");
                     rebuildHome();
                     play(url, channel.title, channel.key);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
         showKeyboard(input);
+    }
+
+    private void showImportDialog() {
+        final EditText input = streamInput();
+        input.setHint("https://…/pbb-links.json");
+        String remembered = ChannelStore.lastRemote(this);
+        if (!remembered.isEmpty()) {
+            input.setText(remembered);
+        } else if (!StreamConfig.REMOTE_CONFIG_URL.isEmpty()) {
+            input.setText(StreamConfig.REMOTE_CONFIG_URL);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Import camera links")
+                .setMessage("Point this at a JSON file that maps each camera to a stream URL or to a "
+                        + "resolver endpoint:\n"
+                        + "{\"channels\":[{\"key\":\"dining\",\"url\":\"https://…/dining.m3u8\"}]}")
+                .setView(pad(input))
+                .setPositiveButton("Import", (d, w) -> {
+                    String url = input.getText().toString().trim();
+                    if (!url.startsWith("http")) {
+                        notifyCouldNotSave(url);
+                        return;
+                    }
+                    importLinks(url);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        showKeyboard(input);
+    }
+
+    private void importLinks(String configUrl) {
+        Toast.makeText(this, "Importing links…", Toast.LENGTH_SHORT).show();
+        io.execute(() -> {
+            String message;
+            try {
+                RemoteSources.Result result = RemoteSources.sync(this, configUrl);
+                ChannelStore.rememberRemote(this, configUrl);
+                message = result.summary();
+            } catch (Exception e) {
+                message = "Import failed: " + (e.getMessage() == null ? "bad link" : e.getMessage());
+            }
+            final String text = message;
+            ui.post(() -> {
+                if (!isFinishing()) {
+                    rebuildHome();
+                }
+                Toast.makeText(this, text, Toast.LENGTH_LONG).show();
+            });
+        });
     }
 
     private void showAddDialog() {
@@ -556,7 +675,8 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     /** Stop the dead stream and show the URL box pre-filled, so a rotated/expired link is a 2-tap fix. */
     private void fixCurrentLink() {
         final EditText input = streamInput();
-        input.setText(currentUrl);
+        String resolver = ChannelStore.resolverFor(this, currentKey);
+        input.setText(currentUrl.isEmpty() ? resolver : currentUrl);
         new AlertDialog.Builder(this)
                 .setTitle("Change link · " + currentTitle)
                 .setMessage("Reconnect this camera with a fresh stream URL.")
@@ -690,6 +810,15 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         if (!request.isEmpty() && StreamConfig.isAutoResume()) {
             play(request.url, request.title, request.key);
             return;
+        }
+        if (StreamConfig.isAutoResume()) {
+            SharedPreferences prefs = getSharedPreferences(StreamConfig.PREFS, MODE_PRIVATE);
+            String lastKey = prefs.getString(StreamConfig.KEY_LAST_KEY, "");
+            String resolver = ChannelStore.resolverFor(this, lastKey);
+            if (!resolver.isEmpty()) {
+                playResolved(lastKey, prefs.getString(StreamConfig.KEY_LAST_TITLE, ""), resolver);
+                return;
+            }
         }
         showHome();
         if (firstLaunch && StreamConfig.OPEN_SITE_WHEN_UNBOUND && ChannelStore.boundCount(this) == 0) {
