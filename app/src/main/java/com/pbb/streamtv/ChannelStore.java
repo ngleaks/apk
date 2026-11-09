@@ -4,8 +4,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.TextUtils;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -38,7 +36,6 @@ final class ChannelStore {
         }
     }
 
-    @NonNull
     static List<Channel> load(Context context) {
         SharedPreferences prefs = prefs(context);
         List<Channel> out = new ArrayList<>();
@@ -83,7 +80,7 @@ final class ChannelStore {
     }
 
     /** Add (or refresh) a channel and return the resulting list. */
-    static List<Channel> upsert(Context context, @Nullable String title, @NonNull String url) {
+    static List<Channel> upsert(Context context, String title, String url) {
         String cleanTitle = StreamConfig.titleFor(url, title);
         List<Channel> channels = load(context);
         for (int i = 0; i < channels.size(); i++) {
@@ -98,7 +95,7 @@ final class ChannelStore {
         return channels;
     }
 
-    static List<Channel> remove(Context context, @NonNull String url) {
+    static List<Channel> remove(Context context, String url) {
         List<Channel> channels = load(context);
         for (int i = channels.size() - 1; i >= 0; i--) {
             if (channels.get(i).url.equals(url)) {

@@ -3,7 +3,6 @@ package com.pbb.streamtv;
 import android.content.SharedPreferences;
 import android.net.Uri;
 
-import androidx.annotation.Nullable;
 
 /**
  * The single source of truth for "what are we watching".
@@ -22,7 +21,14 @@ final class StreamConfig {
      * Streams offered on the channel list. Leave empty to rely purely on {@link #LANDING_PAGE}
      * link discovery, or fill it in with URLs you are allowed to rebroadcast.
      */
+    static final String DEMO_HLS =
+            "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8";
+
     static final Stream[] MANIFEST = new Stream[]{
+            // Apple's public HLS sample, kept as a smoke test: if this plays, the player, the
+            // network path and the TV's decoders are all fine. Long-press OK in the channel list
+            // to delete it once your own streams are in place.
+            new Stream("Demo · HLS test stream", DEMO_HLS, ""),
             new Stream("Main camera", "", ""),
             new Stream("Dining area", "", ""),
             new Stream("External cam", "", ""),
@@ -82,7 +88,7 @@ final class StreamConfig {
     }
 
     /** Resolve what to open: deep link > saved resume point > nothing. */
-    static PlayRequest resolve(@Nullable Uri data, SharedPreferences prefs) {
+    static PlayRequest resolve(Uri data, SharedPreferences prefs) {
         if (data != null && DEEPLINK_SCHEME.equals(data.getScheme())) {
             String url = data.getQueryParameter("url");
             String title = data.getQueryParameter("title");
