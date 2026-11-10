@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PBBforFREE TV</string>
-    <string name="channel_panel_hint">Press BACK to close</string>
+    <string name="app_name">PBB Live</string>
+    <string name="nav_main_live">MAIN LIVE</string>
+    <string name="nav_dining">DINING</string>
+    <string name="nav_external">EXTERNAL</string>
+    <string name="nav_all">ALL</string>
+    <string name="state_connecting">Connecting…</string>
+    <string name="state_buffering">Buffering…</string>
+    <string name="state_error">Stream unavailable</string>
+    <string name="retry">Retry</string>
+    <string name="no_stream_title">No stream configured</string>
+    <string name="no_stream_body">Add an authorised MPEG-DASH or HLS URL in assets/streams.json\nand rebuild, or push one with the adb deep link documented in the README.</string>
+    <string name="hint_player">OK  Controls · ◀ ▶  Sections · BACK  Exit</string>
+    <string name="hint_grid">OK  Open camera · ◀ ▶ ▲ ▼  Move · BACK  Sections</string>
+    <string name="controls_hint">◀ ▶  Select · OK  Activate · BACK  Close</string>
+    <string name="loading_short">Loading…</string>
 </resources>

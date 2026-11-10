@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
@@ -8,15 +10,15 @@ val keystoreProps = Properties().apply {
 }
 
 android {
-    namespace = "com.pbb.streamtv"
+    namespace = "com.pbb.livetv"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.pbb.streamtv"
+        applicationId = "com.pbb.livetv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 10
+        versionName = "2.0.0"
     }
 
     signingConfigs {
@@ -35,12 +37,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // A CI build stays installable with the debug key; drop in keystore.properties
-            // (4 lines, see README) to sign a Play-ready release instead.
+            // Drop in keystore.properties (see README) to sign with your own upload key; without it
+            // the release APK is signed with the local debug key so it still installs.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
         debug {
             isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
     }
 
@@ -52,11 +56,14 @@ android {
     buildFeatures {
         buildConfig = true
     }
+
+    packaging {
+        resources.excludes += setOf("META-INF/*.kotlin_module")
+    }
 }
 
 dependencies {
-    implementation("androidx.core:core:1.13.1")
-    implementation("androidx.media3:media3-exoplayer:1.5.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
-    implementation("androidx.media3:media3-ui:1.5.1")
+    // Deliberately zero runtime dependencies: the player is android.media + the segment engine, so
+    // the APK stays under 1 MB and installs on old TV boxes. See README "Why not Media3".
+    testImplementation("junit:junit:4.13.2")
 }

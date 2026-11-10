@@ -1,0 +1,42 @@
+[
+  {
+    "id": "main-live",
+    "label": "PBB Main Live",
+    "subtitle": "Pinoy Big Brother · Collab Edition 3.0",
+    "section": "MAIN_LIVE",
+    "url": "https://abslive.akamaized.net/dash/live/2099522/pinoybigbrothercollabedition30live/manifest.mpd",
+    "format": "dash"
+  },
+  {
+    "id": "dining-area",
+    "label": "Dining Area",
+    "subtitle": "PBB All Access · camera 2",
+    "section": "DINING",
+    "url": "https://absp-live.akamaized.net/dash/live/2099522/pbbcollab30allaccesslivestream-diningarea/manifest.mpd",
+    "format": "dash"
+  },
+  {
+    "id": "external-den",
+    "label": "External Den",
+    "subtitle": "PBB All Access · camera 3",
+    "section": "EXTERNAL",
+    "url": "https://absp-live.akamaized.net/dash/live/2099522/pbbcollab30allaccesslivestream-externalden/manifest.mpd",
+    "format": "dash"
+  },
+  {
+    "id": "all-access",
+    "label": "All Access",
+    "subtitle": "PBB All Access · full house",
+    "section": "ALL",
+    "url": "https://absp-live.akamaized.net/dash/live/2099522/pbbcollab30allaccesslivestream/manifest.mpd",
+    "format": "dash"
+  },
+  {
+    "id": "all-access-2x2",
+    "label": "Quad View",
+    "subtitle": "Main · Dining · External · All",
+    "section": "ALL",
+    "url": "",
+    "format": "dash"
+  }
+]
