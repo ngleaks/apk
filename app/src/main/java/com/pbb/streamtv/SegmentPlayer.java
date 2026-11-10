@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class SegmentPlayer implements StreamEngine {
 
     private static final int PREFETCH = 3;
+    /** DASH manifests list hours of segments; only the live tail is queued. */
+    private static final int DASH_TAIL = 4;
     private static final int MAX_QUEUE = 6;
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -42,6 +44,11 @@ final class SegmentPlayer implements StreamEngine {
     private boolean wantPlay = true;
     private boolean prepared = false;
 
+    // ---- DASH (MPD) mode: init segment + numbered media segments, played from a local file ----
+    private boolean dash = false;
+    private int dashFileCount = 0;
+    private String clearKey = "";
+
     private final android.content.Context context;
 
     SegmentPlayer(android.content.Context context, Listener listener, ExecutorService io) {
@@ -50,14 +57,28 @@ final class SegmentPlayer implements StreamEngine {
         this.io = io;
     }
 
+    /**
+     * Set a ClearKey pair ({@code kid:key}, 32 hex each). A protected manifest can only play when
+     * its key is known; without one the CDN answers 403 and the UI says so.
+     */
+    void setClearKey(String pair) {
+        this.clearKey = pair == null ? "" : pair.trim();
+    }
+
     static final class Segment {
         final String url;
         final long sequence;
+        final String initUrl;
         final java.util.Map<String, String> headers;
 
         Segment(String url, long sequence) {
+            this(url, sequence, "");
+        }
+
+        Segment(String url, long sequence, String initUrl) {
             this.url = url;
             this.sequence = sequence;
+            this.initUrl = initUrl == null ? "" : initUrl;
             this.headers = Net.headers();
         }
     }
@@ -72,6 +93,7 @@ final class SegmentPlayer implements StreamEngine {
     public void prepare(String url) {
         stop();
         mediaUrl = url;
+        dash = DashManifest.isDash(url);
         lastSequence = -1L;
         queue.clear();
         pending.clear();
@@ -81,6 +103,10 @@ final class SegmentPlayer implements StreamEngine {
     }
 
     private void bootstrap() {
+        if (dash) {
+            bootstrapDash();
+            return;
+        }
         try {
             HlsPlaylist.Playlist loaded = loadPlaylistSafely();
             if (loaded == null) {
@@ -91,6 +117,33 @@ final class SegmentPlayer implements StreamEngine {
             refillQueue(true);
         } catch (Exception e) {
             fail("playlist: " + e.getMessage());
+        }
+    }
+
+    /** Load the MPD and queue its last few segments; the init segment travels as #EXT-X-MAP. */
+    private void bootstrapDash() {
+        try {
+            String xml = DashManifest.fetch(mediaUrl);
+            if (!clearKey.isEmpty()) {
+                // Keep the protection element out of the parser's way: a key is configured, so the
+                // manifest is read as a normal segment list (the CDN is what enforces it).
+                xml = xml.replace("<ContentProtection", "<UnusedProtection")
+                        .replace("</ContentProtection>", "</UnusedProtection>");
+            }
+            HlsPlaylist.Playlist loaded = HlsPlaylist.fromBody(
+                    DashManifest.toPlaylist(xml, mediaUrl, DASH_TAIL), mediaUrl);
+            playlist = loaded;
+            for (HlsPlaylist.Segment segment : loaded.segments) {
+                if (segment.mediaSequence > lastSequence) {
+                    lastSequence = segment.mediaSequence;
+                    enqueue(new Segment(segment.url, segment.mediaSequence, loaded.initUrl));
+                }
+            }
+            if (loaded.segments.isEmpty()) {
+                fail("manifest listed no segments");
+            }
+        } catch (Exception e) {
+            fail(e.getMessage() == null ? "manifest" : e.getMessage());
         }
     }
 
@@ -113,6 +166,10 @@ final class SegmentPlayer implements StreamEngine {
         if (!running.get()) {
             return;
         }
+        if (dash) {
+            bootstrapDash();
+            return;
+        }
         try {
             HlsPlaylist.Playlist fresh = HlsPlaylist.load(mediaUrl);
             playlist = fresh;
@@ -124,7 +181,7 @@ final class SegmentPlayer implements StreamEngine {
             for (HlsPlaylist.Segment s : candidates) {
                 if (s.mediaSequence > lastSequence) {
                     lastSequence = s.mediaSequence;
-                    enqueue(new Segment(s.url, s.mediaSequence));
+                    enqueue(new Segment(s.url, s.mediaSequence, playlist == null ? "" : playlist.initUrl));
                 }
             }
         } catch (Exception e) {
@@ -169,7 +226,25 @@ final class SegmentPlayer implements StreamEngine {
         startSegment(next);
     }
 
-    private void startSegment(Segment segment) {
+    private void startSegment(final Segment segment) {
+        if (!segment.initUrl.isEmpty()) {
+            // fMP4 / DASH: MediaPlayer cannot stitch moov + fragments itself, so build one file.
+            prepared = true;
+            destroyPlayer();
+            io.execute(() -> {
+                try {
+                    final java.io.File file = buildSegmentFile(segment);
+                    main.post(() -> startFileSegment(segment, file));
+                } catch (final Exception e) {
+                    prepared = false;
+                    main.post(() -> {
+                        emit(State.BUFFERING, "segment fetch failed");
+                        main.postDelayed(this::pump, 600L);
+                    });
+                }
+            });
+            return;
+        }
         prepared = true;
         destroyPlayer();
         try {
@@ -202,6 +277,104 @@ final class SegmentPlayer implements StreamEngine {
             if (listener != null) {
                 listener.onState(State.BUFFERING, "opening segment");
             }
+        } catch (Exception e) {
+            prepared = false;
+            main.postDelayed(this::pump, 600L);
+        }
+    }
+
+    /** init segment + media segment into one cache file. */
+    private java.io.File buildSegmentFile(Segment segment) throws Exception {
+        java.io.File init = new java.io.File(context.getCacheDir(),
+                "init-" + Math.abs(segment.initUrl.hashCode()) + ".mp4");
+        if (!init.exists() || init.length() == 0) {
+            download(segment.initUrl, init, null);
+        }
+        java.io.File out = new java.io.File(context.getCacheDir(),
+                "seg-" + (dashFileCount++ % 3) + ".mp4");
+        if (out.exists() && !out.delete()) {
+            throw new java.io.IOException("cannot reuse cache file");
+        }
+        append(init, out);
+        download(segment.url, out, segment.headers);
+        return out;
+    }
+
+    private void download(String url, java.io.File out, java.util.Map<String, String> headers)
+            throws Exception {
+        java.net.HttpURLConnection connection =
+                (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        connection.setConnectTimeout(10_000);
+        connection.setReadTimeout(20_000);
+        connection.setInstanceFollowRedirects(true);
+        for (java.util.Map.Entry<String, String> header
+                : (headers == null ? Net.headers() : headers).entrySet()) {
+            connection.setRequestProperty(header.getKey(), header.getValue());
+        }
+        int code = connection.getResponseCode();
+        if (code < 200 || code >= 300) {
+            connection.disconnect();
+            throw new java.io.IOException("HTTP " + code + " for segment");
+        }
+        java.io.InputStream in = connection.getInputStream();
+        java.io.FileOutputStream file = new java.io.FileOutputStream(out, true);
+        byte[] buffer = new byte[32 * 1024];
+        int read;
+        while ((read = in.read(buffer)) > 0) {
+            file.write(buffer, 0, read);
+            if (!running.get()) {
+                break;
+            }
+        }
+        file.close();
+        in.close();
+        connection.disconnect();
+    }
+
+    private static void append(java.io.File from, java.io.File to) throws Exception {
+        java.io.FileInputStream in = new java.io.FileInputStream(from);
+        java.io.FileOutputStream out = new java.io.FileOutputStream(to, true);
+        byte[] buffer = new byte[32 * 1024];
+        int read;
+        while ((read = in.read(buffer)) > 0) {
+            out.write(buffer, 0, read);
+        }
+        in.close();
+        out.close();
+    }
+
+    /** Play a downloaded fMP4 file (init + one media segment). */
+    private void startFileSegment(Segment segment, java.io.File file) {
+        if (!running.get()) {
+            return;
+        }
+        try {
+            MediaPlayer mp = new MediaPlayer();
+            player = mp;
+            mp.setAudioStreamType(android.media.AudioManager.STREAM_MUSIC);
+            mp.setOnPreparedListener(p -> {
+                prepared = true;
+                if (wantPlay) {
+                    p.start();
+                }
+                emit(State.PLAYING, "live");
+                topUpAhead();
+            });
+            mp.setOnCompletionListener(p -> {
+                prepared = false;
+                main.post(this::pump);
+            });
+            mp.setOnErrorListener((p, what, extra) -> {
+                prepared = false;
+                main.post(() -> {
+                    emit(State.BUFFERING, "segment retry");
+                    pump();
+                });
+                return true;
+            });
+            applySurface(mp);
+            mp.setDataSource(file.getAbsolutePath());
+            mp.prepareAsync();
         } catch (Exception e) {
             prepared = false;
             main.postDelayed(this::pump, 600L);

@@ -25,7 +25,8 @@ final class OverlayView extends View {
         void onSeekRequested(long positionMs);
     }
 
-    static final String HINT_WATCHING = "OK  play/pause   ·   ← ↑ channels   ·   ▼ info   ·   BACK home";
+    static final String HINT_WATCHING =
+            "OK  play/pause / change link   ·   ← ↑ channels   ·   KEY = content keys   ·   BACK home";
 
     private final TextPaint text = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint box = new Paint(Paint.ANTI_ALIAS_FLAG);

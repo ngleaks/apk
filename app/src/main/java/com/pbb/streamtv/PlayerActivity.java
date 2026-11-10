@@ -284,11 +284,14 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
             String badge = demo ? "TEST" : (ready ? "READY" : "NOT SET");
             String detail = demo
                     ? "Apple sample stream · proves the player works"
-                    : (channel.isBound()
-                            ? "Plays straight on this TV, no login"
-                            : (hasResolver
-                                    ? "Live link fetched each time you press OK"
-                                    : "Bind a stream URL once — press OK"));
+                    : (channel.isBound() && ChannelStore.keyFor(this, channel.key).isEmpty()
+                            && isProtectedPreset(channel)
+                            ? "DASH preset · needs its content key — press OK"
+                            : (channel.isBound()
+                                    ? "Plays straight on this TV, no login"
+                                    : (hasResolver
+                                            ? "Live link fetched each time you press OK"
+                                            : "Bind a stream URL once — press OK")));
             Ui.Card card = Ui.card(this, "CAM", badgeColor(channel),
                     cameraGlyph(channel), channel.title, detail, ready, 148);
             card.view.setOnClickListener(v -> openChannel(channel));
@@ -372,6 +375,13 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
                 88);
         headers.view.setOnClickListener(v -> showHeadersDialog());
         addCard(headers);
+
+        Ui.Card keys = Ui.cardRow(this, "KEYS", Ui.WARN,
+                "⚿", "Content keys",
+                "ClearKey pairs (kid:key) for the Widevine presets or any ClearKey DASH stream — stored only on this TV.",
+                88);
+        keys.view.setOnClickListener(v -> showKeysDialog());
+        addCard(keys);
 
         Ui.Card probe = Ui.cardRow(this, "DIAGNOSE", Ui.TEXT_MUTED,
                 "✓", "Test camera links",
@@ -529,6 +539,34 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         });
     }
 
+    private void showKeysDialog() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(Ui.dp(this, 24), Ui.dp(this, 8), Ui.dp(this, 24), 0);
+        final EditText[] inputs = new EditText[StreamConfig.MANIFEST.length];
+        for (int i = 0; i < StreamConfig.MANIFEST.length; i++) {
+            StreamConfig.Stream camera = StreamConfig.MANIFEST[i];
+            form.addView(sectionLabel(camera.title.toUpperCase(java.util.Locale.US)));
+            inputs[i] = headerInput("kid:key — 32+32 hex characters", ChannelStore.keyFor(this, camera.key));
+            form.addView(inputs[i]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Content keys")
+                .setMessage("The PBB DASH presets are Widevine/PlayReady ClearKey streams: without a "
+                        + "matching kid:key the CDN answers 403. Paste the pair below to play them — "
+                        + "keys are kept on this TV only.")
+                .setView(form)
+                .setPositiveButton("Save", (d, w) -> {
+                    for (int i = 0; i < inputs.length; i++) {
+                        saveKey(StreamConfig.MANIFEST[i].key, inputs[i].getText().toString());
+                    }
+                    rebuildHome();
+                    Toast.makeText(this, "Keys saved", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     private void showHeadersDialog() {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
@@ -670,11 +708,23 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
 
     private void showBindDialog(final ChannelStore.Channel channel) {
         final EditText input = streamInput();
+        if (channel.isBound()) {
+            input.setText(channel.url);
+        }
+        final EditText keyInput = headerInput("Content key — kid:key (32 hex each), optional", 
+                ChannelStore.keyFor(this, channel.key));
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(Ui.dp(this, 24), Ui.dp(this, 8), Ui.dp(this, 24), 0);
+        form.addView(input);
+        form.addView(sectionLabel("CLEARKEY (OPTIONAL)"));
+        form.addView(keyInput);
         new AlertDialog.Builder(this)
                 .setTitle("Link " + channel.title)
                 .setMessage("Paste the stream URL for this camera once. It is saved on this TV and "
-                        + "plays from now on with no login or browser.")
-                .setView(pad(input))
+                        + "plays from now on with no login or browser. A Widevine/PlayReady stream "
+                        + "also needs its kid:key pair, otherwise it answers 403.")
+                .setView(form)
                 .setPositiveButton("Save & play", (d, w) -> {
                     String url = input.getText().toString().trim();
                     if (!ChannelStore.looksPlayable(url)) {
@@ -690,12 +740,27 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
                     }
                     ChannelStore.bind(this, channel.key, channel.title, url);
                     ChannelStore.bindResolver(this, channel.key, "");
+                    saveKey(channel.key, keyInput.getText().toString());
                     rebuildHome();
                     play(url, channel.title, channel.key);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
         showKeyboard(input);
+    }
+
+    /** Store or clear the ClearKey pair of a camera (never in the repo, only on this device). */
+    private void saveKey(String key, String value) {
+        String clean = value == null ? "" : value.replace(" ", "").trim();
+        if (clean.isEmpty() || !clean.contains(":")) {
+            ChannelStore.bindKey(this, key, "");
+            return;
+        }
+        ChannelStore.bindKey(this, key, clean);
+    }
+
+    private boolean isProtectedPreset(ChannelStore.Channel channel) {
+        return channel.isBound() && (channel.url.contains("/dash/") || channel.url.contains(".mpd"));
     }
 
     private void showImportDialog() {
@@ -829,8 +894,10 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         pendingUrl = "";
         retryIndex = 0;
 
+        String clearKey = ChannelStore.keyFor(this, currentKey);
         engine = HlsPlaylist.looksLikePlaylist(url) || isLikelyHls(url)
-                ? new SegmentPlayer(this, this, io)
+                || DashManifest.isDash(url)
+                ? withKey(new SegmentPlayer(this, this, io), clearKey)
                 : new FilePlayer(this, this);
         overlay.setCentreMessage("Connecting…\n" + currentTitle, 2);
         overlay.setTitle(currentTitle, "", engine.isLive());
@@ -838,6 +905,11 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
         engine.prepare(url);
         StreamConfig.remember(getSharedPreferences(StreamConfig.PREFS, MODE_PRIVATE),
                 url, currentTitle, currentKey);
+    }
+
+    private StreamEngine withKey(SegmentPlayer player, String key) {
+        player.setClearKey(key);
+        return player;
     }
 
     /** Some CDNs serve HLS from a query string instead of a .m3u8 path. */
@@ -857,9 +929,17 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
     private void scheduleRetry(String detail) {
         long delay = RETRY_DELAYS_MS[Math.min(retryIndex, RETRY_DELAYS_MS.length - 1)];
         retryIndex++;
+        String lower = detail.toLowerCase(java.util.Locale.US);
+        boolean protectedStream = lower.contains("drm") || lower.contains("http 403")
+                || lower.contains("http 401") || lower.contains("clearkey");
+        String hint = protectedStream
+                ? "\n\nThis stream is DRM/session locked: add its content key with the KEY button, "
+                        + "or a fresh link with ← cameras."
+                : "\n\n← channels   ·   OK change link   ·   ▲▼ home";
         overlay.setCentreMessage("Stream unreachable"
-                + (detail.isEmpty() ? "" : "\n" + detail) + "\nretrying in " + Math.max(1, delay / 1000) + "s"
-                + "\n\n← channels   ·   OK change link   ·   ▲▼ home", 5);
+                + (detail.isEmpty() ? "" : "\n" + detail)
+                + (protectedStream ? "" : "\nretrying in " + Math.max(1, delay / 1000) + "s")
+                + hint, protectedStream ? 5 : 5);
         ui.removeCallbacks(retryRunnable);
         ui.postDelayed(retryRunnable, delay);
     }
@@ -1091,6 +1171,12 @@ public final class PlayerActivity extends Activity implements StreamEngine.Liste
             case KeyEvent.KEYCODE_MEDIA_REWIND:
                 seekBy(-30_000L);
                 return true;
+            case KeyEvent.KEYCODE_K:
+                if (watching) {
+                    showKeysDialog();
+                    return true;
+                }
+                break;
             case KeyEvent.KEYCODE_VOLUME_UP:
                 changeVolume(AudioManager.ADJUST_RAISE);
                 return true;

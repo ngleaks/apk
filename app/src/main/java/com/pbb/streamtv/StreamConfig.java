@@ -32,11 +32,33 @@ final class StreamConfig {
      * (bindings live on the device, in {@link ChannelStore}). Put your own licensed HLS/DASH URL in
      * the third argument to bake it into the APK instead.
      */
+    /**
+     * Shipped presets — the DASH endpoints published by the community site
+     * github.com/hanuramakuku/Pbb-Live-Stream (decoded from its data.js). They are Widevine/PlayReady
+     * ClearKey streams: without the 32-hex key pair they answer 403 and the app says so instead of
+     * spinning. A key can be set per camera at runtime (never baked into this repo).
+     */
     static final Stream[] MANIFEST = new Stream[]{
-            new Stream("all", "Main stream · All Access", "", ""),
-            new Stream("dining", "Dining area", "", ""),
-            new Stream("external", "External den", "", ""),
+            new Stream("all", "Main stream · All Access",
+                    "https://absp-live.akamaized.net/dash/live/2099522/pbbcollab30allaccesslivestream/manifest.mpd",
+                    ""),
+            new Stream("dining", "Dining area",
+                    "https://absp-live.akamaized.net/dash/live/2099522/pbbcollab30allaccesslivestream-diningarea/manifest.mpd",
+                    ""),
+            new Stream("external", "External den",
+                    "https://absp-live.akamaized.net/dash/live/2099522/pbbcollab30allaccesslivestream-externalden/manifest.mpd",
+                    ""),
+            new Stream("mainlive", "Main live channel",
+                    "https://abslive.akamaized.net/dash/live/2099522/pinoybigbrothercollabedition30live/manifest.mpd",
+                    ""),
     };
+
+    /**
+     * ClearKey entries for the presets, in the same order, as {@code "kidHex:keyHex"}. Empty on
+     * purpose: keys are added per device with "Content keys" in the app, or by filling this array in
+     * a private build. The app refuses to play a protected stream it has no key for.
+     */
+    static final String[] PRESET_KEYS = new String[]{"", "", "", ""};
 
     /** Off by default; long-press the row in the channel list to remove it after the first run. */
     static final boolean SHOW_DEMO = true;
@@ -91,6 +113,16 @@ final class StreamConfig {
         String url() {
             return hlsUrl.isEmpty() ? fallbackUrl : hlsUrl;
         }
+    }
+
+    /** Preset key for a camera key, or "". */
+    static String presetKey(String key) {
+        for (int i = 0; i < MANIFEST.length; i++) {
+            if (MANIFEST[i].key.equals(key)) {
+                return i < PRESET_KEYS.length ? PRESET_KEYS[i] : "";
+            }
+        }
+        return "";
     }
 
     static Stream demo() {

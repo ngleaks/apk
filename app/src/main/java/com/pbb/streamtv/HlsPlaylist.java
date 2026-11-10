@@ -52,6 +52,8 @@ final class HlsPlaylist {
         boolean endList = false;
         long mediaSequence = 0L;
         String baseUrl;
+        /** fMP4 initialization segment from #EXT-X-MAP (used by DASH and CMAF HLS). */
+        String initUrl = "";
 
         boolean isMaster() {
             return !variants.isEmpty();
@@ -100,6 +102,11 @@ final class HlsPlaylist {
      * Fetch and parse a playlist. Throws {@link IOException} for network problems so the caller can
      * retry with backoff.
      */
+    /** Parse a playlist body that is already in memory (used for DASH manifests). */
+    static Playlist fromBody(String body, String baseUrl) {
+        return parse(body, baseUrl);
+    }
+
     static Playlist load(String playlistUrl) throws IOException {
         String body = fetch(playlistUrl);
         Playlist playlist = parse(body, playlistUrl);
@@ -143,6 +150,11 @@ final class HlsPlaylist {
             } else if (line.startsWith("#EXT-X-STREAM-INF:")) {
                 bandwidth = extractLong(line, "BANDWIDTH=");
                 resolution = extractString(line, "RESOLUTION=");
+            } else if (line.startsWith("#EXT-X-MAP:")) {
+                String map = extractQuoted(line, "URI=\"");
+                if (!map.isEmpty()) {
+                    playlist.initUrl = resolve(url, map);
+                }
             } else if (line.startsWith("#EXT-X-ENDLIST")) {
                 playlist.endList = true;
             } else if (!line.startsWith("#")) {
@@ -244,6 +256,17 @@ final class HlsPlaylist {
     private static long extractLong(String line, String key) {
         String value = extractString(line, key);
         return value.isEmpty() ? 0L : parseLong(value.replace(",", ""));
+    }
+
+    /** Reads a quoted attribute value ("URI=\"https://…\"") without stopping at ':'. */
+    private static String extractQuoted(String line, String key) {
+        int at = line.indexOf(key);
+        if (at < 0) {
+            return "";
+        }
+        int start = at + key.length();
+        int end = line.indexOf('"', start);
+        return end < 0 ? line.substring(start) : line.substring(start, end);
     }
 
     private static String extractString(String line, String key) {

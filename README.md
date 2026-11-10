@@ -2,10 +2,10 @@
 
 A small native TV build that replaces the phone-only WebView wrapper in `pbbforfree.apk`.
 
-**Ready to install:** [`pbb-tv-1.3.0.apk`](pbb-tv-1.3.0.apk) (894 KB, minSdk 24, targetSdk 35).
-Sideload it with `adb install pbb-tv-1.3.0.apk`, or download it on the TV with Downloader from the
+**Ready to install:** [`pbb-tv-1.4.0.apk`](pbb-tv-1.4.0.apk) (898 KB, minSdk 24, targetSdk 35).
+Sideload it with `adb install pbb-tv-1.4.0.apk`, or download it on the TV with Downloader from the
 raw link on branch `arena/d7765815-apk`
-(`https://raw.githubusercontent.com/ngleaks/apk/arena/d7765815-apk/pbb-tv-1.3.0.apk`).
+(`https://raw.githubusercontent.com/ngleaks/apk/arena/d7765815-apk/pbb-tv-1.4.0.apk`).
 Every build here is signed with the same local key, so 1.2.0 installs straight over 1.0.0/1.1.0.
 
 The original APK is a `freewebtoapk.com` template that opens `pbblivestream.vercel.app` in a
@@ -48,6 +48,39 @@ same command works in CI (see `docs/ci/build-tv-apk.yml`) and in a locked-down s
   only if the package name is changed back to `com.webapp.pbbforfree`; a different applicationId
   installs side by side. Play Store uploads need your own upload key either way.
 
+## Where the links come from (decoded from the community site)
+
+`github.com/hanuramakuku/Pbb-Live-Stream` ships a `data.js` that obfuscates a small table; decoding
+it gives exactly four DASH endpoints (Akamai, ABS-CBN origin) plus, for each, a **32-hex : 32-hex
+pair**:
+
+| Camera | Manifest (`.mpd`) |
+|---|---|
+| All Access | `absp-live.akamaized.net/dash/live/2099522/pbbcollab30allaccesslivestream/manifest.mpd` |
+| Dining area | `…pbbcollab30allaccesslivestream-diningarea/manifest.mpd` |
+| External den | `…pbbcollab30allaccesslivestream-externalden/manifest.mpd` |
+| Main live | `abslive.akamaized.net/dash/live/2099522/pinoybigbrothercollabedition30live/manifest.mpd` |
+
+The `script.js` of that site plays them with shaka, the DRM plugin, configured as
+`drm: { preferredKeySystems: [widevine], clearKeys: { <kid>: <key> } }` — i.e. **Widevine/PlayReady
+ClearKey**, not plain streams. Those pairs are the site's content keys and are *not* copied into
+this repo; the app ships the endpoints and a **Content keys** dialog, so a key you supply is used
+locally and per camera:
+
+* **KEYS** tile on the home screen (or the **K** key while watching) → paste `kid:key` per camera.
+* With a key set, DASH manifests are read and played (see below); without one, the app says
+  *"DRM-protected (Widevine · kid …) — add its content key"* instead of failing silently.
+* **Test camera links** reports `DASH · Widevine · kid …` for each camera so the state is never
+  guesswork.
+
+### DASH support
+
+`DashManifest` reads the live DASH shape these endpoints use (`SegmentTemplate` +
+`SegmentTimeline`, `$Number$`/`$Time$`/`$RepresentationID$`), converts it into an HLS playlist with
+`#EXT-X-MAP` as the init segment, and `SegmentPlayer` plays it by building `init + segment` fMP4
+files in the cache and handing them to `MediaPlayer`. That is the only reason a TV without ExoPlayer
+can play `.mpd` at all. Protected manifests are refused unless a key is configured.
+
 ## Channels — the three PBB cameras
 
 The home screen mirrors the camera switcher on `pbblivestream.vercel.app`, but native and D-pad
@@ -73,10 +106,13 @@ and that binding is kept on the device across app updates.
 
 `key` must be `all`, `dining` or `external`; omit it and the URL is saved as an extra channel.
 
-The app ships with **no** PBB URLs: they are behind iWant and not public (Main is free there,
-Dining/External are behind a subscription). The one pre-filled row is a clearly labelled
-`Demo · HLS test stream` (Apple's public sample) so you can prove the TV, the network and the
-decoders work before pasting a real link.
+The three camera slots are pre-filled with the public DASH presets above (no URLs to type). They
+are ClearKey-protected, so they play once their key is entered — see *Content keys*. The
+`Demo · HLS test stream` row (Apple's public sample) is still there to prove decoder and network.
+
+⚠️ Distributing those keys or the streams themselves is a rights problem, not a technical one: the
+content is ABS-CBN's and the keys are not yours to publish. This repo contains the player and the
+public endpoint metadata only.
 
 ### Why a link that plays in a page can fail in a player
 

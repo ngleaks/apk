@@ -31,6 +31,7 @@ final class ChannelStore {
     private static final String KEY_HIDDEN = "hidden";       // ["demo"]
     private static final String KEY_RESOLVERS = "resolvers"; // key -> endpoint
     private static final String KEY_REMOTE = "remote_url";   // last link file pulled
+    private static final String KEY_KEYS = "content_keys";   // key -> "kid:key"
 
     private ChannelStore() {
     }
@@ -180,6 +181,33 @@ final class ChannelStore {
     static void restoreCameras(Context context) {
         SharedPreferences prefs = prefs(context);
         prefs.edit().remove(KEY_HIDDEN).apply();
+    }
+
+    /** ClearKey pair ("kid:key") for a camera key, or "" when the stream is clear. */
+    static String keyFor(Context context, String key) {
+        if (TextUtils.isEmpty(key)) {
+            return "";
+        }
+        String stored = readObject(prefs(context), KEY_KEYS).optString(key, "");
+        return TextUtils.isEmpty(stored) ? StreamConfig.presetKey(key) : stored;
+    }
+
+    static void bindKey(Context context, String key, String pair) {
+        if (TextUtils.isEmpty(key)) {
+            return;
+        }
+        SharedPreferences prefs = prefs(context);
+        JSONObject keys = readObject(prefs, KEY_KEYS);
+        try {
+            if (TextUtils.isEmpty(pair)) {
+                keys.remove(key);
+            } else {
+                keys.put(key, pair);
+            }
+        } catch (Exception ignored) {
+            // org.json only throws on null keys
+        }
+        prefs.edit().putString(KEY_KEYS, keys.toString()).apply();
     }
 
     /** Resolver endpoint bound to a camera key, or "". */

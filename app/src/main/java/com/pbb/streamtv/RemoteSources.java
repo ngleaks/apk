@@ -173,12 +173,22 @@ final class RemoteSources {
                 return "HTTP " + code + (code == 403 || code == 401 ? " (session/geo locked)" : "");
             }
             InputStream in = connection.getInputStream();
-            byte[] head = new byte[96];
+            byte[] head = new byte[4096];
             int read = in.read(head);
             in.close();
-            String first = read > 0 ? new String(head, 0, read, "UTF-8").split("\r?\n")[0] : "";
+            String body = read > 0 ? new String(head, 0, read, "UTF-8") : "";
+            String first = body.split("\r?\n").length == 0 ? "" : body.split("\r?\n")[0];
+            String extra = "";
+            if (body.contains("<MPD") || body.contains("<?xml")) {
+                String protection = DashManifest.protection(body);
+                boolean dash = DashManifest.isDash(url) || body.contains("<MPD");
+                extra = dash ? " · DASH" : "";
+                if (protection != null) {
+                    extra += " · " + protection + " (needs its content key)";
+                }
+            }
             return "HTTP " + code + " · " + (type == null ? "?" : type)
-                    + (first.isEmpty() ? "" : " · " + first.trim());
+                    + (first.isEmpty() ? "" : " · " + first.trim()) + extra;
         } catch (Exception e) {
             return "ERR " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
