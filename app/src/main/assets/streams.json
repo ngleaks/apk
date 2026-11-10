@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "comment": "PBB LIVE camera catalog. This build ships WITHOUT ABS-CBN stream credentials. Paste your own authorized URLs (or drop a replacement streams.json in the app's external files directory) and rebuild / relaunch. Sections: main | dining | external | all. The 'demo' camera is a public Apple bipbop HLS test stream, enabled so the player pipeline can be verified; disable or replace it for production.",
+  "cameras": [
+    {
+      "id": "main_live",
+      "label": "PBB Main Live",
+      "shortLabel": "MAIN LIVE",
+      "section": "main",
+      "url": "",
+      "format": "auto",
+      "enabled": true
+    },
+    {
+      "id": "dining",
+      "label": "PBB Dining Area",
+      "shortLabel": "DINING",
+      "section": "dining",
+      "url": "",
+      "format": "auto",
+      "enabled": true
+    },
+    {
+      "id": "external_den",
+      "label": "PBB External Den",
+      "shortLabel": "EXTERNAL",
+      "section": "external",
+      "url": "",
+      "format": "auto",
+      "enabled": true
+    },
+    {
+      "id": "all_access",
+      "label": "PBB All Access",
+      "shortLabel": "ALL ACCESS",
+      "section": "all",
+      "url": "",
+      "format": "auto",
+      "enabled": true
+    },
+    {
+      "id": "demo_bipbop",
+      "label": "Demo · Apple bipbop (public HLS test stream)",
+      "shortLabel": "DEMO · BIPBOP",
+      "section": "all",
+      "url": "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
+      "format": "hls",
+      "enabled": true,
+      "demo": true
+    }
+  ]
+}

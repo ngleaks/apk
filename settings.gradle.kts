@@ -1,17 +1,2 @@
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-
-dependencyResolutionManagement {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-rootProject.name = "PBBforFREE-TV"
+rootProject.name = "PBB-LIVE-TV"
 include(":app")

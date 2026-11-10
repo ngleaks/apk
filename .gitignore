@@ -18,3 +18,10 @@ signkey/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Local tool caches (see tools.properties)
+buildtools/package/
+buildtools/npm/
+buildtools/pylibs/
+
+buildtools/dist/

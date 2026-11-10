@@ -4,11 +4,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- TV hardware: no touchscreen, and leanback is what makes a device see this as a TV app. -->
+    <!-- Android TV / Google TV device chrome. Not TV-exclusive: the same APK runs on phones. -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <!-- Keep the listing visible on phones/tablets too; the player is D-pad driven. -->
     <uses-feature android:name="android.hardware.faketouch" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen.multitouch" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -18,26 +18,34 @@
         android:label="@string/app_name"
         android:largeHeap="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Playback"
-        android:usesCleartextTraffic="true">
+        android:theme="@style/Theme.PBBLive">
 
         <activity
-            android:name=".PlayerActivity"
+            android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="landscape">
 
-            <!-- Android TV / Google TV launcher -->
+            <!-- Android TV / Google TV home launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
 
-            <!-- Regular launcher, so the same APK still opens on a phone -->
+            <!-- Regular launcher entry (phones / TV boxes with a phone-style launcher) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- One-off "play this authorized stream" deep link:
+                 pbblivetv://play?url=https%3A%2F%2Fexample.com%2Flive.m3u8&title=Main -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pbblivetv" android:host="play" />
             </intent-filter>
         </activity>
     </application>

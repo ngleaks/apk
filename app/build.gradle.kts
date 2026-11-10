@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 val keystorePropsFile = rootProject.file("keystore.properties")
@@ -7,22 +8,24 @@ val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
 
+val releaseStore = keystoreProps.getProperty("storeFile")
+
 android {
-    namespace = "com.pbb.streamtv"
+    namespace = "ph.pbb.live"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.pbb.streamtv"
+        applicationId = "ph.pbb.live"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 200
+        versionName = "2.0.0"
     }
 
     signingConfigs {
-        if (keystoreProps.isNotEmpty()) {
+        if (keystoreProps.isNotEmpty() && releaseStore != null) {
             create("release") {
-                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storeFile = rootProject.file(releaseStore)
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
@@ -32,15 +35,15 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // A CI build stays installable with the debug key; drop in keystore.properties
-            // (4 lines, see README) to sign a Play-ready release instead.
+            // No minification: the app is small (framework-only) and every screen is
+            // hand-written; shrinking buys nothing and complicates debugging on-device.
+            isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
         debug {
             isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
     }
 
@@ -49,14 +52,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
     buildFeatures {
         buildConfig = true
     }
 }
 
 dependencies {
-    implementation("androidx.core:core:1.13.1")
-    implementation("androidx.media3:media3-exoplayer:1.5.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
-    implementation("androidx.media3:media3-ui:1.5.1")
+    // Zero third-party dependencies by design (lightweight, fast installs on TV boxes).
+    // For DRM/ClearKey DASH, add AndroidX Media3 and swap the LivePlayer implementation:
+    //   implementation("androidx.media3:media3-exoplayer:1.5.1")
+    //   implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
+    //   implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
 }

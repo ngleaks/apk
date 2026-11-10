@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PBBforFREE TV</string>
-    <string name="channel_panel_hint">Press BACK to close</string>
+    <string name="app_name" translatable="false">PBB LIVE</string>
+    <string name="nav_main_live">MAIN LIVE</string>
+    <string name="nav_dining">DINING</string>
+    <string name="nav_external">EXTERNAL</string>
+    <string name="nav_all">ALL</string>
 </resources>
