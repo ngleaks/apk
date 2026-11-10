@@ -70,6 +70,7 @@ authorised to rebroadcast. See [Configuring streams](#configuring-streams).
 | Anywhere | ▲ ▼ ◀ ▶ | Move focus (never leaves the screen with nothing focused) |
 | Player | **OK** | Show controls (Pause/Play, Next camera, Mute, Close) |
 | All grid | **OK** | Open the focused camera fullscreen |
+| All grid, page edge | ◀ ▶ | Previous / next page of cameras (when focus cannot move further) |
 | All grid, fullscreen | **BACK** | Return to the wall, previous tile restored |
 | Player | ▼ | Move into the section bar |
 | Section bar | ◀ ▶ | **switch section** (owned by the bar, cannot jump into content) |
@@ -225,7 +226,8 @@ MAIN LIVE show their own sections.
 - Single-camera player with connecting / buffering / playing / paused / error / no-stream /
   licence-required states, retry, mute, next-camera, auto-hiding controls.
 - 2×2 paged CCTV wall, per-tile labels + camera numbers, focus ring, fullscreen open with BACK
-  restore, max 4 simultaneous streams, muted grid.
+  restore, max 4 simultaneous streams, muted grid; page flipping at the grid edge with the page's
+  streams started on demand.
 - D-pad-first navigation with owned LEFT/RIGHT on the section bar, visible focus everywhere,
   never a focus trap (every state has a BACK/nav escape).
 - Engine pool with reuse, release-on-leave, pause on background, volume routing (grid muted).

@@ -56,6 +56,8 @@ emulator (API 30+) or a TV box, and `adb shell input keyevent <CODE>` to drive i
 - [ ] OK opens the focused camera fullscreen with sound; BACK returns to the wall with the same tile
       focused and the other tiles still streaming.
 - [ ] More than 4 cameras: `PAGE n / m`, page 2 renders its tiles.
+- [ ] At the right edge of the grid, ◀ ▶ flips to the previous/next page and starts that page's
+      streams (toast shows the camera range).
 - [ ] Grid audio stays muted; opening a camera brings audio for that camera only.
 
 ### Failure handling

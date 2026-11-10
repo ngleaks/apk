@@ -67,8 +67,8 @@ def nav(d, img, active, focused_idx=None):
         x += w + 12
 
 def header(d, title, sub, badge="LIVE STUDIO"):
-    d.text((28, 26), title, font=f(BOLD, 30), fill=TEXT)
-    d.text((28, 66), sub, font=f(MED, 19), fill=SECOND)
+    d.text((28, 24), title, font=f(BOLD, 30), fill=TEXT, anchor="la")
+    d.text((28, 66), sub, font=f(MED, 19), fill=SECOND, anchor="la")
     bw = d.textlength(badge, font=f(BOLD, 17)) + 24
     rrect(d, [W - 28 - bw, 34, W - 28, 74], 4, fill=(20, 40, 40), outline=ACCENT_DIM)
     d.text((W - 28 - bw / 2, 54), badge, font=f(BOLD, 17), fill=ACCENT, anchor="mm")
@@ -180,12 +180,12 @@ def screen_licence():
     d = ImageDraw.Draw(img)
     header(d, "DINING", "Dining feeds")
     cx0, cx1 = 28, W - 28
-    cy0, cy1 = 112, H - 66 - 22
+    cy0, cy1 = 118, H - 66 - 22
     rrect(d, [cx0, cy0, cx1, cy1], 10, fill=TILE)
     vw = cx1 - cx0 - 24
-    vh = int(vw * 9 / 16)
+    vh = min(int(vw * 9 / 16), (cy1 - cy0) - 24)
     vx = cx0 + 12
-    vy = cy0 + (cy1 - cy0 - vh) // 2
+    vy = cy0 + 12 + ((cy1 - cy0) - 24 - vh) // 2
     rrect(d, [vx, vy, vx + vw, vy + vh], 8, fill=(12, 16, 24))
     rrect(d, [vx, vy, vx + vw, vy + vh], 8, outline=BORDER, width=2)
     cxm, cym = vx + vw // 2, vy + vh // 2
@@ -194,7 +194,9 @@ def screen_licence():
     t2 = "authorised to use – keys are never bundled or bypassed."
     d.text((cxm, cym + 0), t1, font=f(MED, 21), fill=SECOND, anchor="mm")
     d.text((cxm, cym + 32), t2, font=f(MED, 21), fill=SECOND, anchor="mm")
-    d.text((vx + 26, vy + vh - 50), "Dining Area", font=f(BOLD, 28), fill=TEXT)
+    live_dot(d, vx + 26, vy + vh - 58)
+    d.text((vx + 46, vy + vh - 70), "Dining Area", font=f(BOLD, 28), fill=TEXT)
+    d.text((vx + 48, vy + vh - 32), "PBB All Access · camera 2", font=f(MED, 18), fill=SECOND)
     nav(d, img, active=1)
     img.save("docs/img/screen-licence.png")
 

@@ -333,6 +333,21 @@ public final class MainActivity extends Activity implements PlayerEngine.Listene
         toast(camera.label + " · BACK returns to ALL");
     }
 
+    /** Page the CCTV wall. Only used when focus is at the left/right edge of the grid. */
+    private boolean changeGridPage(int delta) {
+        int current = allScreen.page();
+        int target = current + delta;
+        if (target < 0 || target >= allScreen.pageCount()) {
+            return false;
+        }
+        allScreen.setPage(target, state.selected(Camera.Section.ALL));
+        startVisibleGridStreams();
+        toast("Cameras " + (target * AllScreen.PER_PAGE + 1) + "–"
+                + Math.min(state.camerasIn(Camera.Section.ALL).size(),
+                (target + 1) * AllScreen.PER_PAGE));
+        return true;
+    }
+
     private void exitFullscreen() {
         if (fullscreenCamera == null) {
             return;
@@ -762,7 +777,15 @@ public final class MainActivity extends Activity implements PlayerEngine.Listene
         if (isGridVisible()) {
             switch (keyCode) {
                 case KeyEvent.KEYCODE_DPAD_LEFT:
+                    if (allScreen.moveFocus(keyCode)) {
+                        return true;
+                    }
+                    return changeGridPage(-1);
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    if (allScreen.moveFocus(keyCode)) {
+                        return true;
+                    }
+                    return changeGridPage(1);
                 case KeyEvent.KEYCODE_DPAD_UP:
                     return allScreen.moveFocus(keyCode);
                 case KeyEvent.KEYCODE_DPAD_DOWN: {
